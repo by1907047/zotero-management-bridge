@@ -442,9 +442,42 @@ var ZoteroManagementBridge = {
     }
   },
 
+  async getItemByKey(key) {
+    let libraryID = Zotero.Libraries.userLibraryID;
+    if (Zotero.Items.getByLibraryAndKeyAsync) {
+      try {
+        let item = await Zotero.Items.getByLibraryAndKeyAsync(libraryID, key);
+        if (item) return item;
+      }
+      catch (e) {
+        this.log("getByLibraryAndKeyAsync failed, trying fallback: " + (e && e.message || e));
+      }
+    }
+    if (Zotero.Items.getByLibraryAndKey) {
+      try {
+        let item = Zotero.Items.getByLibraryAndKey(libraryID, key);
+        if (item) return item;
+      }
+      catch (e) {
+        this.log("getByLibraryAndKey failed, trying DB fallback: " + (e && e.message || e));
+      }
+    }
+    if (Zotero.DB && Zotero.DB.valueQueryAsync) {
+      let itemID = await Zotero.DB.valueQueryAsync(
+        "SELECT itemID FROM items WHERE libraryID=? AND key=?",
+        [libraryID, key]
+      );
+      if (itemID) {
+        let item = await Zotero.Items.getAsync(itemID);
+        return Array.isArray(item) ? item[0] : item;
+      }
+    }
+    return null;
+  },
+
   async findItemByKey(key) {
     if (!key) throw new Error("args.parentKey is required");
-    let item = await Zotero.Items.getByLibraryAndKeyAsync(Zotero.Libraries.userLibraryID, key);
+    let item = await this.getItemByKey(key);
     if (!item) {
       throw new Error(`Parent item not found: ${key}`);
     }
@@ -793,7 +826,7 @@ var ZoteroManagementBridge = {
     for (let key of keys) {
       let detail = { key, action: "" };
       try {
-        let item = await Zotero.Items.getByLibraryAndKeyAsync(Zotero.Libraries.userLibraryID, key);
+        let item = await this.getItemByKey(key);
         if (!item) {
           detail.action = "missing";
           summary.missing++;
@@ -830,7 +863,7 @@ var ZoteroManagementBridge = {
     for (let key of keys) {
       let detail = { key, action: "" };
       try {
-        let item = await Zotero.Items.getByLibraryAndKeyAsync(Zotero.Libraries.userLibraryID, key);
+        let item = await this.getItemByKey(key);
         if (!item) {
           detail.action = "missing";
           summary.missing++;

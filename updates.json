@@ -3,9 +3,9 @@
                    "zotero-management-bridge@example.org":  {
                                                                 "updates":  [
                                                                                 {
-                                                                                    "version":  "0.2.0-alpha.3",
-                                                                                    "update_link":  "https://github.com/by1907047/zotero-management-bridge/releases/download/v0.2.0-alpha.3/zotero-management-bridge-0.2.0-alpha.3.xpi",
-                                                                                    "update_hash":  "sha256:ae64b2b3d40a0d82b8687e28551a40e17089115e3b3df89d79a061824a28f8f4",
+                                                                                    "version":  "0.2.0-alpha.4",
+                                                                                    "update_link":  "https://github.com/by1907047/zotero-management-bridge/releases/download/v0.2.0-alpha.4/zotero-management-bridge-0.2.0-alpha.4.xpi",
+                                                                                    "update_hash":  "sha256:aebc603836275cc222dd3bbadf508110ed61ac2111e1016e98a65c69ea0913fa",
                                                                                     "applications":  {
                                                                                                          "zotero":  {
                                                                                                                         "strict_min_version":  "6.999",
