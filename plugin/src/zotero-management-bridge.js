@@ -44,12 +44,30 @@ var ZoteroManagementBridge = {
   },
 
   profileDir() {
-    if (typeof Zotero !== "undefined" && Zotero.Profile && Zotero.Profile.dir) {
-      return Zotero.Profile.dir;
+    try {
+      if (typeof Zotero !== "undefined" && Zotero.Profile && Zotero.Profile.dir) {
+        return Zotero.Profile.dir;
+      }
     }
-    if (typeof OS !== "undefined" && OS.Constants && OS.Constants.Path && OS.Constants.Path.profileDir) {
-      return OS.Constants.Path.profileDir;
+    catch (e) {}
+    try {
+      if (typeof Services !== "undefined" && Services.dirsvc) {
+        return Services.dirsvc.get("ProfD", Ci.nsIFile).path;
+      }
     }
+    catch (e) {}
+    try {
+      if (typeof OS !== "undefined" && OS.Constants && OS.Constants.Path && OS.Constants.Path.profileDir) {
+        return OS.Constants.Path.profileDir;
+      }
+    }
+    catch (e) {}
+    try {
+      if (typeof Zotero !== "undefined" && Zotero.DataDirectory && Zotero.DataDirectory.dir) {
+        return Zotero.DataDirectory.dir;
+      }
+    }
+    catch (e) {}
     throw new Error("Cannot determine Zotero profile directory; configure extensions.zoteroManagementBridge.queueRoot");
   },
 
