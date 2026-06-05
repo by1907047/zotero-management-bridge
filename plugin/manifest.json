@@ -8,6 +8,7 @@
   "applications": {
     "zotero": {
       "id": "zotero-management-bridge@example.org",
+      "update_url": "https://raw.githubusercontent.com/by1907047/zotero-management-bridge/main/updates.json",
       "strict_min_version": "6.999",
       "strict_max_version": "9.*"
     }

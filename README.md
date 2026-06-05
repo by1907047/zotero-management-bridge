@@ -65,6 +65,18 @@ powershell -ExecutionPolicy Bypass -File scripts/package.ps1
 
 The generated `.xpi` appears under `dist/`.
 
+## Updates
+
+Installed builds can update through Zotero when `manifest.json` points to a hosted `updates.json`.
+
+This repository uses:
+
+```text
+https://raw.githubusercontent.com/by1907047/zotero-management-bridge/main/updates.json
+```
+
+Release assets should be uploaded to GitHub Releases, and `updates.json` should point to the matching `.xpi` with a SHA-256 `update_hash`.
+
 ## Compatibility
 
 Target: Zotero 7+ manifest format, tested locally against Zotero 9.

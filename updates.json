@@ -1,0 +1,19 @@
+﻿{
+    "addons":  {
+                   "zotero-management-bridge@example.org":  {
+                                                                "updates":  [
+                                                                                {
+                                                                                    "version":  "0.2.0-alpha.0",
+                                                                                    "update_link":  "https://github.com/by1907047/zotero-management-bridge/releases/download/v0.2.0-alpha.0/zotero-management-bridge-0.2.0-alpha.0.xpi",
+                                                                                    "update_hash":  "sha256:1b6c1395d8960fbe34cc7223a4f15d5a19b0b4e6b3c7fd21dcddc5c36359e0b6",
+                                                                                    "applications":  {
+                                                                                                         "zotero":  {
+                                                                                                                        "strict_min_version":  "6.999",
+                                                                                                                        "strict_max_version":  "9.*"
+                                                                                                                    }
+                                                                                                     }
+                                                                                }
+                                                                            ]
+                                                            }
+               }
+}
