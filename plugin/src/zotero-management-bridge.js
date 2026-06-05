@@ -327,6 +327,7 @@ var ZoteroManagementBridge = {
     if (operation === "cleanup-old-stored") return await this.operationCleanupOldStored(mode, args);
     if (operation === "link-file-to-item") return await this.operationLinkFileToItem(mode, args);
     if (operation === "import-file-to-item") return await this.operationImportFileToItem(mode, args);
+    if (operation === "update-item-fields") return await this.operationUpdateItemFields(mode, args);
     if (operation === "trash-items-by-key") return await this.operationTrashItemsByKey(mode, args);
     if (operation === "erase-trash-by-key") return await this.operationEraseTrashByKey(mode, args);
     throw new Error(`Unknown operation: ${operation}`);
@@ -482,6 +483,102 @@ var ZoteroManagementBridge = {
       throw new Error(`Parent item not found: ${key}`);
     }
     return item;
+  },
+
+  getCreatorsForReport(item) {
+    try {
+      return item.getCreators ? item.getCreators().map(creator => Object.assign({}, creator)) : [];
+    }
+    catch (e) {
+      return [];
+    }
+  },
+
+  assertSafeFieldName(field) {
+    let blocked = new Set(["key", "itemKey", "itemType", "itemID", "libraryID", "dateAdded", "dateModified"]);
+    if (!field || blocked.has(field)) {
+      throw new Error(`Field cannot be updated through this operation: ${field}`);
+    }
+  },
+
+  async applyItemMetadataUpdate(item, fields, creators, saveOptions) {
+    await Zotero.DB.executeTransaction(async () => {
+      for (let [field, value] of Object.entries(fields)) {
+        item.setField(field, value);
+      }
+      if (creators) {
+        item.setCreators(creators);
+      }
+      await item.save(saveOptions || {});
+    });
+  },
+
+  async operationUpdateItemFields(mode, args) {
+    let updates = args.items || null;
+    if (!updates) {
+      updates = [{
+        key: args.key || args.itemKey,
+        fields: args.fields || {},
+        creators: args.creators
+      }];
+    }
+    if (!Array.isArray(updates) || !updates.length) {
+      throw new Error("args.items or args.key is required");
+    }
+
+    let summary = { requested: updates.length, found: 0, wouldUpdate: 0, updated: 0, missing: 0, failures: 0 };
+    let details = [];
+    for (let update of updates) {
+      let key = update.key || update.itemKey;
+      let fields = update.fields || {};
+      let creators = update.creators;
+      let detail = { key, action: "" };
+      try {
+        if (!key) throw new Error("item key is required");
+        if ((!fields || !Object.keys(fields).length) && creators === undefined) {
+          throw new Error("fields or creators is required");
+        }
+        for (let field of Object.keys(fields)) {
+          this.assertSafeFieldName(field);
+        }
+        if (creators !== undefined && !Array.isArray(creators)) {
+          throw new Error("creators must be an array when provided");
+        }
+
+        let item = await this.getItemByKey(key);
+        if (!item) {
+          detail.action = "missing";
+          summary.missing++;
+          details.push(detail);
+          continue;
+        }
+
+        detail.itemID = item.id;
+        detail.itemType = item.itemType;
+        detail.before = { fields: {}, creators: this.getCreatorsForReport(item) };
+        detail.after = { fields: {}, creators: creators !== undefined ? creators : detail.before.creators };
+        for (let [field, value] of Object.entries(fields)) {
+          detail.before.fields[field] = item.getField ? item.getField(field) : null;
+          detail.after.fields[field] = value;
+        }
+
+        summary.found++;
+        detail.action = mode === "apply" ? "updated-item-fields" : "would-update-item-fields";
+        summary.wouldUpdate++;
+        if (mode === "apply") {
+          await this.applyItemMetadataUpdate(item, fields, creators, update.saveOptions || args.saveOptions || {});
+          summary.updated++;
+          summary.wouldUpdate--;
+        }
+      }
+      catch (e) {
+        detail.action = "failed";
+        detail.error = String(e && e.stack || e);
+        summary.failures++;
+      }
+      details.push(detail);
+    }
+    return { ok: summary.failures === 0, summary, details };
   },
 
   async findExistingChildAttachment(parent, targetPath) {

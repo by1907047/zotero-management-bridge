@@ -33,7 +33,7 @@ This document describes the intended public API surface. Operation names are sta
 ## Execute Operations
 
 - `create-item`: create a Zotero item from structured metadata.
-- `update-item`: update whitelisted item fields by key.
+- `update-item-fields`: update whitelisted item fields and creators by key.
 - `create-collection`: create a collection under an optional parent.
 - `move-to-collection`: add/remove items from collections.
 - `add-tags` / `remove-tags`: tag management.
