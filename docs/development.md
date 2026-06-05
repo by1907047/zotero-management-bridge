@@ -27,6 +27,7 @@ Unit tests:
 ```powershell
 node tests/test_plugin_helpers.js
 python tests/test_cli_args_json.py
+python tests/test_mcp_server.py
 ```
 
 Package the plugin:
@@ -77,8 +78,9 @@ Before publishing a release:
     - `metadata-audit`
     - `find-duplicate-attachments`
     - `cleanup-duplicate-attachments` in `dry-run`
-11. For destructive behavior, test only a tiny known fixture and confirm records are moved to Zotero Trash rather than permanently deleted.
-12. Upload the `.xpi` to GitHub Releases and ensure `updates.json` points to the matching version and hash.
+11. Run the MCP smoke test from `docs/mcp.md` if the MCP adapter changed.
+12. For destructive behavior, test only a tiny known fixture and confirm records are moved to Zotero Trash rather than permanently deleted.
+13. Upload the `.xpi` to GitHub Releases and ensure `updates.json` points to the matching version and hash.
 
 ## Version Roadmap
 

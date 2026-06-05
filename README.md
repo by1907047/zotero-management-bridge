@@ -99,6 +99,35 @@ python cli/zotero_bridge.py plugin-request --operation update-item-fields --mode
 
 For request and response details, see `docs/api.md`.
 
+## MCP Server
+
+The repository also includes a local MCP stdio adapter:
+
+```powershell
+python mcp/zotero_management_bridge_mcp.py
+```
+
+The MCP server does not access Zotero directly. It forwards tool calls to the installed Zotero plugin through the same queue protocol, then returns the plugin response as structured tool output.
+
+Example MCP client configuration:
+
+```json
+{
+  "mcpServers": {
+    "zotero-management-bridge": {
+      "command": "python",
+      "args": [
+        "PATH_TO_REPO/mcp/zotero_management_bridge_mcp.py"
+      ]
+    }
+  }
+}
+```
+
+To allow write operations from MCP, start the server with `--allow-apply` or set `ZMB_MCP_ALLOW_APPLY=1`. Individual apply calls still require `confirmApply: true`. Dry-run calls are available by default.
+
+See [docs/mcp.md](docs/mcp.md).
+
 ## Safety Model
 
 - No arbitrary JavaScript execution endpoint.

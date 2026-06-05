@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "zotero-management-bridge": {
+      "command": "python",
+      "args": [
+        "PATH_TO_REPO/mcp/zotero_management_bridge_mcp.py"
+      ],
+      "env": {
+        "ZMB_MCP_TIMEOUT": "60"
+      }
+    }
+  }
+}

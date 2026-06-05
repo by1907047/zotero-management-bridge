@@ -25,8 +25,28 @@ CONNECTOR = "http://127.0.0.1:23119"
 DEFAULT_ZOTERO_DATA = Path.home() / "Zotero"
 DEFAULT_CLOUD_ROOT = Path(os.environ.get("ZMB_CLOUD_ROOT", Path.home() / "ZoteroLinkedAttachments"))
 DEFAULT_REPORT_DIR = Path(os.environ.get("ZMB_REPORT_DIR", Path.cwd() / "zotero-management-bridge-reports"))
-DEFAULT_PLUGIN_QUEUE = Path(os.environ.get("ZMB_QUEUE_ROOT", Path.home() / ".zotero-management-bridge" / "queue"))
 STORED_LINK_MODES = {"imported_file", "imported_url"}
+
+
+def default_plugin_queue() -> Path:
+    configured = os.environ.get("ZMB_QUEUE_ROOT")
+    if configured:
+        return Path(configured)
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        profiles = Path(appdata) / "Zotero" / "Zotero" / "Profiles"
+        candidates = list(profiles.glob("*/zotero-management-bridge/queue/bridge_status.json"))
+        if candidates:
+            latest = max(candidates, key=lambda path: path.stat().st_mtime)
+            return latest.parent
+        queue_dirs = list(profiles.glob("*/zotero-management-bridge/queue"))
+        if queue_dirs:
+            latest = max(queue_dirs, key=lambda path: path.stat().st_mtime)
+            return latest
+    return Path.home() / ".zotero-management-bridge" / "queue"
+
+
+DEFAULT_PLUGIN_QUEUE = default_plugin_queue()
 
 
 def load_args_json(value: str | None) -> dict:
@@ -312,27 +332,13 @@ def command_copy_stored_to_cloud(args: argparse.Namespace) -> int:
 
 
 def command_plugin_request(args: argparse.Namespace) -> int:
-    request_id = args.id or f"{args.operation}_{timestamp()}_{uuid.uuid4().hex[:8]}"
-    queue = args.queue_root
-    requests = ensure_dir(queue / "requests")
-    responses = ensure_dir(queue / "responses")
-    ensure_dir(queue / "processed")
-    ensure_dir(queue / "failed")
-
     request_args = load_args_json(args.args_json)
-    if "cloudBase" not in request_args:
+    if args.cloud_root and "cloudBase" not in request_args:
         request_args["cloudBase"] = str(args.cloud_root)
-    request = {
-        "id": request_id,
-        "operation": args.operation,
-        "mode": args.mode,
-        "createdAt": dt.datetime.now().isoformat(timespec="seconds"),
-        "args": request_args,
-    }
     if args.keys:
-        request["args"]["keys"] = [key.strip() for key in args.keys.split(",") if key.strip()]
+        request_args["keys"] = [key.strip() for key in args.keys.split(",") if key.strip()]
     if args.move:
-        request["args"]["move"] = True
+        request_args["move"] = True
     for cli_name, arg_name in [
         ("parent_key", "parentKey"),
         ("file_path", "filePath"),
@@ -342,46 +348,104 @@ def command_plugin_request(args: argparse.Namespace) -> int:
     ]:
         value = getattr(args, cli_name, None)
         if value:
-            request["args"][arg_name] = value
+            request_args[arg_name] = value
     if getattr(args, "no_skip_existing", False):
-        request["args"]["skipExisting"] = False
+        request_args["skipExisting"] = False
     if getattr(args, "skip_date_modified_update", False):
-        request["args"]["skipDateModifiedUpdate"] = True
+        request_args["skipDateModifiedUpdate"] = True
 
-    request_path = requests / f"{request_id}.json"
-    response_path = responses / f"{request_id}.json"
-    write_json(request_path, request)
+    request_id = args.id or make_request_id(args.operation)
+    request, request_path, response_path = write_plugin_request(
+        queue_root=args.queue_root,
+        operation=args.operation,
+        mode=args.mode,
+        request_args=request_args,
+        request_id=request_id,
+    )
     print(f"Plugin request written to: {request_path}")
 
     if not args.wait:
         print(f"Expected response path: {response_path}")
         return 0
 
-    deadline = time.time() + args.timeout
+    try:
+        response = wait_for_plugin_response(response_path, args.timeout)
+    except TimeoutError:
+        print(f"Timed out waiting for plugin response: {response_path}", file=sys.stderr)
+        return 2
+    except json.JSONDecodeError:
+        raw_path = ensure_dir(args.report_dir) / f"zotero_management_bridge_plugin_{args.operation}_{request_id}.txt"
+        raw_path.write_text(response_path.read_text(encoding="utf-8"), encoding="utf-8")
+        print(f"Plugin returned non-JSON response written to: {raw_path}")
+        return 1
+
+    archive_name = f"zotero_management_bridge_plugin_{args.operation}_{request_id}.json"
+    archive_path = ensure_dir(args.report_dir) / archive_name
+    write_json(archive_path, response)
+    summary = response.get("summary")
+    print(f"Plugin response written to: {archive_path}")
+    if summary is not None:
+        print(json.dumps(summary, ensure_ascii=True, indent=2))
+    else:
+        short = {key: response.get(key) for key in ["ok", "zoteroVersion", "pluginVersion", "queueRoot", "cloudBase", "userLibraryID"] if key in response}
+        print(json.dumps(short, ensure_ascii=True, indent=2))
+    return 0 if response.get("ok") else 1
+
+
+def make_request_id(operation: str) -> str:
+    return f"{operation}_{timestamp()}_{uuid.uuid4().hex[:8]}"
+
+
+def write_plugin_request(
+    queue_root: Path,
+    operation: str,
+    mode: str = "dry-run",
+    request_args: dict | None = None,
+    request_id: str | None = None,
+) -> tuple[dict, Path, Path]:
+    request_id = request_id or make_request_id(operation)
+    requests = ensure_dir(queue_root / "requests")
+    responses = ensure_dir(queue_root / "responses")
+    ensure_dir(queue_root / "processed")
+    ensure_dir(queue_root / "failed")
+    request = {
+        "id": request_id,
+        "operation": operation,
+        "mode": mode,
+        "createdAt": dt.datetime.now().isoformat(timespec="seconds"),
+        "args": request_args or {},
+    }
+    request_path = requests / f"{request_id}.json"
+    response_path = responses / f"{request_id}.json"
+    write_json(request_path, request)
+    return request, request_path, response_path
+
+
+def wait_for_plugin_response(response_path: Path, timeout: int | float = 60) -> dict:
+    deadline = time.time() + timeout
     while time.time() < deadline:
         if response_path.exists():
-            text = response_path.read_text(encoding="utf-8")
-            try:
-                response = json.loads(text)
-                archive_name = f"zotero_management_bridge_plugin_{args.operation}_{request_id}.json"
-                archive_path = ensure_dir(args.report_dir) / archive_name
-                write_json(archive_path, response)
-                summary = response.get("summary")
-                print(f"Plugin response written to: {archive_path}")
-                if summary is not None:
-                    print(json.dumps(summary, ensure_ascii=True, indent=2))
-                else:
-                    short = {key: response.get(key) for key in ["ok", "zoteroVersion", "pluginVersion", "queueRoot", "cloudBase", "userLibraryID"] if key in response}
-                    print(json.dumps(short, ensure_ascii=True, indent=2))
-                return 0 if response.get("ok") else 1
-            except json.JSONDecodeError:
-                raw_path = ensure_dir(args.report_dir) / f"zotero_management_bridge_plugin_{args.operation}_{request_id}.txt"
-                raw_path.write_text(text, encoding="utf-8")
-                print(f"Plugin returned non-JSON response written to: {raw_path}")
-                return 1
-        time.sleep(1)
-    print(f"Timed out waiting for plugin response: {response_path}", file=sys.stderr)
-    return 2
+            return json.loads(response_path.read_text(encoding="utf-8"))
+        time.sleep(0.25)
+    raise TimeoutError(str(response_path))
+
+
+def submit_plugin_request(
+    operation: str,
+    mode: str = "dry-run",
+    request_args: dict | None = None,
+    queue_root: Path | None = None,
+    timeout: int | float = 60,
+    request_id: str | None = None,
+) -> dict:
+    _request, _request_path, response_path = write_plugin_request(
+        queue_root=queue_root or DEFAULT_PLUGIN_QUEUE,
+        operation=operation,
+        mode=mode,
+        request_args=request_args or {},
+        request_id=request_id,
+    )
+    return wait_for_plugin_response(response_path, timeout)
 
 
 def build_parser() -> argparse.ArgumentParser:
