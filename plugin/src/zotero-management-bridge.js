@@ -854,6 +854,32 @@ var ZoteroManagementBridge = {
     };
   },
 
+  possibleDuplicateAttachmentEvidence(a, b) {
+    if ((a.parentItemID || null) !== (b.parentItemID || null)) return null;
+    if ((a.contentType || "") !== (b.contentType || "")) return null;
+    let aKind = this.attachmentKind(a);
+    let bKind = this.attachmentKind(b);
+    if (aKind !== bKind) return null;
+    if (aKind !== "primary") return null;
+    if (!Number.isFinite(a.size) || !Number.isFinite(b.size)) return null;
+    if (a.sha256 && b.sha256 && a.size === b.size && a.sha256 !== b.sha256) return null;
+
+    let sizeDeltaBytes = Math.abs(a.size - b.size);
+    let maxSize = Math.max(a.size, b.size, 1);
+    let sizeDeltaRatio = sizeDeltaBytes / maxSize;
+    return {
+      evidenceType: "same-parent-multiple-primary-files",
+      confidence: "possible",
+      attachmentKind: aKind,
+      sizeDeltaBytes,
+      sizeDeltaRatio,
+      sameName: this.normalizedComparableAttachmentName(a) === this.normalizedComparableAttachmentName(b),
+      genericTitleInPair: this.isGenericAttachmentDetail(a) || this.isGenericAttachmentDetail(b),
+      tokenOverlap: this.tokenOverlapRatio(this.attachmentTextTokens(a), this.attachmentTextTokens(b)),
+      reason: "same-parent-same-content-type-primary-files-review-needed"
+    };
+  },
+
   chooseDuplicateAttachmentKeep(details) {
     let sorted = details.slice().sort((a, b) => {
       let scoreDelta = this.duplicateAttachmentScore(b) - this.duplicateAttachmentScore(a);
@@ -927,6 +953,10 @@ var ZoteroManagementBridge = {
     ].join("|");
   },
 
+  componentKey(details) {
+    return details.map(detail => detail.key).sort().join("|");
+  },
+
   unionFindMake(values) {
     let parent = new Map();
     for (let value of values) parent.set(value, value);
@@ -952,6 +982,7 @@ var ZoteroManagementBridge = {
     let includeStoredFiles = !!args.includeStoredFiles;
     let includeSnapshots = args.includeSnapshots !== false;
     let enableNearDuplicates = args.enableNearDuplicateAttachments !== false;
+    let enablePossibleDuplicates = args.enablePossibleDuplicateAttachments !== false;
     let maxHashCandidateAttachments = parseInt(args.maxHashCandidateAttachments || "200", 10);
     if (!Number.isFinite(maxHashCandidateAttachments) || maxHashCandidateAttachments <= 0) {
       maxHashCandidateAttachments = 200;
@@ -966,6 +997,8 @@ var ZoteroManagementBridge = {
       nearSizeCandidatePairs: 0,
       probableDuplicateGroups: 0,
       exactDuplicateGroups: 0,
+      possibleDuplicateGroups: 0,
+      reviewOnlyDuplicateGroups: 0,
       duplicateGroups: 0,
       removableAttachments: 0,
       missingFiles: 0,
@@ -1071,7 +1104,7 @@ var ZoteroManagementBridge = {
       };
       duplicateGroups.push(duplicateGroup);
       summary.exactDuplicateGroups++;
-      coveredComponentKeySet.add(group.map(detail => detail.key).sort().join("|"));
+      coveredComponentKeySet.add(this.componentKey(group));
       for (let detail of remove) removeKeySet.add(detail.key);
     }
 
@@ -1098,7 +1131,7 @@ var ZoteroManagementBridge = {
         }
         for (let component of components.values()) {
           if (component.length <= 1) continue;
-          let componentKey = component.map(detail => detail.key).sort().join("|");
+          let componentKey = this.componentKey(component);
           if (coveredComponentKeySet.has(componentKey)) continue;
           let pairEvidence = [];
           let maxSizeDeltaBytes = 0;
@@ -1140,7 +1173,84 @@ var ZoteroManagementBridge = {
           };
           duplicateGroups.push(duplicateGroup);
           summary.probableDuplicateGroups++;
+          coveredComponentKeySet.add(componentKey);
           for (let detail of remove) removeKeySet.add(detail.key);
+        }
+      }
+    }
+
+    if (enablePossibleDuplicates) {
+      let possibleGroups = Array.from(parentContentTypeGroups.values()).filter(group => group.length > 1);
+      for (let group of possibleGroups) {
+        let byKind = new Map();
+        for (let detail of group) {
+          let kind = this.attachmentKind(detail);
+          if (!byKind.has(kind)) byKind.set(kind, []);
+          byKind.get(kind).push(detail);
+        }
+        for (let kindGroup of byKind.values()) {
+          if (kindGroup.length <= 1) continue;
+          let uf = this.unionFindMake(kindGroup.map(detail => detail.key));
+          let edgeEvidence = new Map();
+          for (let i = 0; i < kindGroup.length; i++) {
+            for (let j = i + 1; j < kindGroup.length; j++) {
+              let evidence = this.possibleDuplicateAttachmentEvidence(kindGroup[i], kindGroup[j]);
+              if (!evidence) continue;
+              uf.union(kindGroup[i].key, kindGroup[j].key);
+              edgeEvidence.set([kindGroup[i].key, kindGroup[j].key].sort().join("|"), evidence);
+            }
+          }
+          let components = new Map();
+          for (let detail of kindGroup) {
+            let root = uf.find(detail.key);
+            if (!components.has(root)) components.set(root, []);
+            components.get(root).push(detail);
+          }
+          for (let component of components.values()) {
+            if (component.length <= 1) continue;
+            let componentKey = this.componentKey(component);
+            if (coveredComponentKeySet.has(componentKey)) continue;
+            let pairEvidence = [];
+            let maxSizeDeltaBytes = 0;
+            let maxSizeDeltaRatio = 0;
+            for (let i = 0; i < component.length; i++) {
+              for (let j = i + 1; j < component.length; j++) {
+                let edgeKey = [component[i].key, component[j].key].sort().join("|");
+                let evidence = edgeEvidence.get(edgeKey);
+                if (!evidence) continue;
+                pairEvidence.push(Object.assign({
+                  keys: [component[i].key, component[j].key]
+                }, evidence));
+                maxSizeDeltaBytes = Math.max(maxSizeDeltaBytes, evidence.sizeDeltaBytes || 0);
+                maxSizeDeltaRatio = Math.max(maxSizeDeltaRatio, evidence.sizeDeltaRatio || 0);
+              }
+            }
+            if (!pairEvidence.length) continue;
+            let choice = this.chooseDuplicateAttachmentKeep(component);
+            let keep = choice.keep;
+            let review = choice.remove;
+            duplicateGroups.push({
+              parentItemID: keep.parentItemID || null,
+              contentType: keep.contentType || "",
+              confidence: "possible",
+              evidenceType: "same-parent-multiple-primary-files",
+              canAutoTrash: false,
+              reason: "same-parent-same-content-type-primary-files-review-needed",
+              maxSizeDeltaBytes,
+              maxSizeDeltaRatio,
+              pairEvidence,
+              keep: Object.assign({}, keep, {
+                score: this.duplicateAttachmentScore(keep),
+                keepReason: "highest-descriptive-title-score-review-needed"
+              }),
+              remove: review.map(detail => Object.assign({}, detail, {
+                score: this.duplicateAttachmentScore(detail),
+                removeReason: "review-only-possible-duplicate-not-auto-trashable"
+              }))
+            });
+            summary.possibleDuplicateGroups++;
+            summary.reviewOnlyDuplicateGroups++;
+          }
         }
       }
     }

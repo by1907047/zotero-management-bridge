@@ -173,6 +173,46 @@ async function testNearDuplicateCatchesSnapshots() {
   assert.strictEqual(plan.duplicateGroups[0].pairEvidence[0].attachmentKind, "snapshot");
 }
 
+async function testPossiblePrimaryDuplicatesAreReviewOnly() {
+  const subject = Object.create(bridge);
+  const attachments = [
+    fakeAttachment({ key: "PUBLISHERPDF", id: 70, parentID: 6, title: "Publisher PDF", path: "D:/linked/publisher-version.pdf" }),
+    fakeAttachment({ key: "ACCEPTEDPDF", id: 71, parentID: 6, title: "Accepted manuscript", path: "D:/linked/accepted-manuscript.pdf" })
+  ];
+  subject.allAttachmentItems = async () => attachments;
+  subject.fileSize = async path => ({ exists: true, size: path.includes("accepted") ? 1900000 : 2600000 });
+  subject.sha256File = async path => path.includes("accepted") ? "hash-b" : "hash-a";
+
+  const plan = await subject.buildDuplicateAttachmentPlan({ maxHashCandidateAttachments: 10 });
+  assert.strictEqual(plan.ok, true);
+  assert.strictEqual(plan.summary.probableDuplicateGroups, 0);
+  assert.strictEqual(plan.summary.possibleDuplicateGroups, 1);
+  assert.strictEqual(plan.summary.reviewOnlyDuplicateGroups, 1);
+  assert.strictEqual(plan.summary.removableAttachments, 0);
+  assert.deepStrictEqual(plan.removeKeys, []);
+  assert.strictEqual(plan.duplicateGroups[0].confidence, "possible");
+  assert.strictEqual(plan.duplicateGroups[0].canAutoTrash, false);
+}
+
+async function testPossiblePrimaryDuplicatesCanBeDisabled() {
+  const subject = Object.create(bridge);
+  const attachments = [
+    fakeAttachment({ key: "MAIN1", id: 80, parentID: 7, title: "One title", path: "D:/linked/one.pdf" }),
+    fakeAttachment({ key: "MAIN2", id: 81, parentID: 7, title: "Different title", path: "D:/linked/two.pdf" })
+  ];
+  subject.allAttachmentItems = async () => attachments;
+  subject.fileSize = async path => ({ exists: true, size: path.includes("two") ? 3000000 : 1000000 });
+  subject.sha256File = async path => path.includes("two") ? "hash-b" : "hash-a";
+
+  const plan = await subject.buildDuplicateAttachmentPlan({
+    maxHashCandidateAttachments: 10,
+    enablePossibleDuplicateAttachments: false
+  });
+  assert.strictEqual(plan.ok, true);
+  assert.strictEqual(plan.summary.possibleDuplicateGroups, 0);
+  assert.strictEqual(plan.summary.duplicateGroups, 0);
+}
+
 async function run() {
   testDuplicateTitlePreference();
   testChineseGenericTitle();
@@ -184,6 +224,8 @@ async function run() {
   await testNearDuplicateCatchesSupplementaryFiles();
   await testNearDuplicateDoesNotMixPrimaryAndSupplementary();
   await testNearDuplicateCatchesSnapshots();
+  await testPossiblePrimaryDuplicatesAreReviewOnly();
+  await testPossiblePrimaryDuplicatesCanBeDisabled();
   console.log("plugin helper tests passed");
 }
 

@@ -82,7 +82,7 @@ The generic wrapper accepts:
 }
 ```
 
-Duplicate attachment tools report exact matches and probable same-kind matches. Same-kind means main files compare with main files, supplementary files with supplementary files, snapshots with snapshots, and so on.
+Duplicate attachment tools report exact matches, probable same-kind matches, and review-only possible matches. Same-kind means main files compare with main files, supplementary files with supplementary files, snapshots with snapshots, and so on. Possible matches are useful when multiple primary files under one item have different names and larger size differences, but they are not auto-trashed.
 
 ## Apply Safety
 

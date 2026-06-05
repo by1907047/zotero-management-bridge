@@ -1,6 +1,6 @@
 # Zotero Management API
 
-Operation names are stable for the `v0.3.0-beta.1` community trial, but may still change before `v1.0`.
+Operation names are stable for the `v0.3.0-beta.2` community trial, but may still change before `v1.0`.
 
 ## Request Shape
 
@@ -134,6 +134,7 @@ Safety: read-only, but it reads candidate attachment files to compute SHA-256 ha
   "args": {
     "maxHashCandidateAttachments": 200,
     "enableNearDuplicateAttachments": true,
+    "enablePossibleDuplicateAttachments": true,
     "nearDuplicateMaxSizeDeltaBytes": 8192,
     "nearDuplicateMaxSizeDeltaRatio": 0.01
   }
@@ -146,9 +147,10 @@ Duplicate rule:
 2. Exact duplicates are grouped by same parent item, same content type, same file size, and same SHA-256. SHA-256 is computed only for exact-size candidates.
 3. Probable duplicates are grouped by same parent item, same content type, same attachment kind, and near file size. Attachment kinds include `primary`, `supplementary`, `snapshot`, `media`, and `data`.
 4. Near-size probable matches require additional evidence: same/generic title, strong token overlap, or a tiny size delta. Main article attachments are not mixed with supplementary files, and snapshots are compared only with snapshots.
-5. The keep/remove plan prefers descriptive titles over generic titles such as `PDF`, `Full Text PDF`, `Snapshot`, and `\u5168\u6587`.
+5. Possible duplicates report same-parent, same-content-type primary files even when names differ and sizes differ more. These are review-only and are not included in `removeKeys`.
+6. The keep/remove plan prefers descriptive titles over generic titles such as `PDF`, `Full Text PDF`, `Snapshot`, and `\u5168\u6587`.
 
-Response includes `duplicateGroups`, `confidence` (`exact` or `probable`), `evidenceType`, `keep`, `remove`, scores, reasons, skipped files, and summary counts.
+Response includes `duplicateGroups`, `confidence` (`exact`, `probable`, or `possible`), `evidenceType`, `canAutoTrash`, `keep`, `remove`, scores, reasons, skipped files, and summary counts.
 
 ## Write Operations
 
@@ -237,7 +239,7 @@ Safety: dry-run-first. Changes Zotero in `apply`: moves duplicate attachment rec
 }
 ```
 
-`apply` runs the same candidate plan, then trashes only the listed extra Zotero attachment records. It never permanently erases records and never deletes cloud-synced or other linked files.
+`apply` runs the same candidate plan, then trashes only the listed extra Zotero attachment records in `removeKeys`. Review-only `possible` groups are reported but are not auto-trashed. The operation never permanently erases records and never deletes cloud-synced or other linked files.
 
 ### `trash-items-by-key`
 

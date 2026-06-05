@@ -22,7 +22,7 @@ import zotero_bridge
 
 
 SERVER_NAME = "zotero-management-bridge"
-SERVER_VERSION = "0.1.1"
+SERVER_VERSION = "0.1.2"
 PROTOCOL_VERSION = "2025-06-18"
 
 
@@ -150,6 +150,7 @@ TOOLS: list[dict[str, Any]] = [
             "includeStoredFiles": {"type": "boolean", "default": False},
             "includeSnapshots": {"type": "boolean", "default": True},
             "enableNearDuplicateAttachments": {"type": "boolean", "default": True},
+            "enablePossibleDuplicateAttachments": {"type": "boolean", "default": True},
             "maxHashCandidateAttachments": {"type": "integer", "minimum": 1, "default": 200},
             "nearDuplicateMaxSizeDeltaBytes": {"type": "integer", "minimum": 0, "default": 8192},
             "nearDuplicateMaxSizeDeltaRatio": {"type": "number", "minimum": 0, "default": 0.01},
@@ -165,6 +166,7 @@ TOOLS: list[dict[str, Any]] = [
             "includeStoredFiles": {"type": "boolean", "default": False},
             "includeSnapshots": {"type": "boolean", "default": True},
             "enableNearDuplicateAttachments": {"type": "boolean", "default": True},
+            "enablePossibleDuplicateAttachments": {"type": "boolean", "default": True},
             "maxHashCandidateAttachments": {"type": "integer", "minimum": 1, "default": 200},
             "nearDuplicateMaxSizeDeltaBytes": {"type": "integer", "minimum": 0, "default": 8192},
             "nearDuplicateMaxSizeDeltaRatio": {"type": "number", "minimum": 0, "default": 0.01},

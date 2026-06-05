@@ -73,7 +73,7 @@ Audit incomplete metadata without changing Zotero:
 python cli/zotero_bridge.py plugin-request --operation metadata-audit --args-json '{"itemTypes":["journalArticle","conferencePaper"]}' --wait
 ```
 
-Find duplicate attachments. The duplicate audit reports exact duplicates by size/hash and probable same-kind duplicates whose file sizes differ only slightly:
+Find duplicate attachments. The duplicate audit reports exact duplicates by size/hash, probable same-kind duplicates whose file sizes differ only slightly, and review-only possible duplicates for multiple primary files under the same Zotero item:
 
 ```powershell
 python cli/zotero_bridge.py plugin-request --operation find-duplicate-attachments --args-json '{"maxHashCandidateAttachments":200}' --wait

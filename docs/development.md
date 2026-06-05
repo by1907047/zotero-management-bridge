@@ -88,3 +88,4 @@ Before publishing a release:
 - `v0.2.0-alpha.7`: metadata audit and query API.
 - `v0.3.0-beta.0`: consolidated community trial with docs, CLI, tests, packaging, and release flow.
 - `v0.3.0-beta.1`: same-kind near-size duplicate attachment audit for main files, supplementary files, snapshots, media, and data attachments.
+- `v0.3.0-beta.2`: review-only possible duplicate audit for multiple primary files under one item when names and sizes differ more.
