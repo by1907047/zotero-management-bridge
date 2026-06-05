@@ -16,13 +16,28 @@ $dist = Join-Path $RepoRoot 'dist'
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
 $safeVersion = $Version -replace '[^A-Za-z0-9._-]', '-'
-$zipPath = Join-Path $dist "zotero-management-bridge-$safeVersion.zip"
 $xpiPath = Join-Path $dist "zotero-management-bridge-$safeVersion.xpi"
 
-if (Test-Path $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
 if (Test-Path $xpiPath) { Remove-Item -LiteralPath $xpiPath -Force }
 
-Compress-Archive -Path (Join-Path $pluginRoot '*') -DestinationPath $zipPath -Force
-Move-Item -LiteralPath $zipPath -Destination $xpiPath
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zip = [System.IO.Compression.ZipFile]::Open($xpiPath, [System.IO.Compression.ZipArchiveMode]::Create)
+try {
+  $rootPath = (Resolve-Path -LiteralPath $pluginRoot).Path.TrimEnd('\', '/')
+  $rootPrefix = $rootPath + [System.IO.Path]::DirectorySeparatorChar
+  Get-ChildItem -LiteralPath $pluginRoot -Recurse -File | Sort-Object FullName | ForEach-Object {
+    $relative = $_.FullName.Substring($rootPrefix.Length).Replace('\', '/')
+    [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+      $zip,
+      $_.FullName,
+      $relative,
+      [System.IO.Compression.CompressionLevel]::Optimal
+    ) | Out-Null
+  }
+}
+finally {
+  $zip.Dispose()
+}
 
 Write-Output $xpiPath
