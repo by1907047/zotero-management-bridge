@@ -336,6 +336,7 @@ var ZoteroManagementBridge = {
     if (operation === "cleanup-old-stored") return await this.operationCleanupOldStored(mode, args);
     if (operation === "link-file-to-item") return await this.operationLinkFileToItem(mode, args);
     if (operation === "import-file-to-item") return await this.operationImportFileToItem(mode, args);
+    if (operation === "create-item") return await this.operationCreateItem(mode, args);
     if (operation === "update-item-fields") return await this.operationUpdateItemFields(mode, args);
     if (operation === "trash-items-by-key") return await this.operationTrashItemsByKey(mode, args);
     if (operation === "erase-trash-by-key") return await this.operationEraseTrashByKey(mode, args);
@@ -349,6 +350,8 @@ var ZoteroManagementBridge = {
       pluginVersion: this.version,
       queueRoot: this.queueRoot,
       cloudBase: args.cloudBase || this.cloudBase,
+      attachmentRoot: args.attachmentRoot || args.cloudBase || this.cloudBase || "",
+      attachmentRootConfigured: !!(args.attachmentRoot || args.cloudBase || this.cloudBase),
       reportMode: this.reportMode,
       userLibraryID: Zotero.Libraries.userLibraryID
     };
@@ -371,6 +374,7 @@ var ZoteroManagementBridge = {
           "inspect"
         ],
         writeDryRunFirst: [
+          "create-item",
           "update-item-fields",
           "link-file-to-item",
           "import-file-to-item",
@@ -448,6 +452,16 @@ var ZoteroManagementBridge = {
     return report;
   },
 
+  collectionReport(collection) {
+    if (!collection) return null;
+    return {
+      collectionID: collection.id || collection.collectionID,
+      key: collection.key,
+      name: collection.name,
+      parentCollectionID: collection.parentID || null
+    };
+  },
+
   async operationListCollections(args) {
     let collections = [];
     if (Zotero.Collections && Zotero.Collections.getByLibrary) {
@@ -473,6 +487,74 @@ var ZoteroManagementBridge = {
     }
     rows.sort((a, b) => (a.path || "").localeCompare(b.path || ""));
     return { ok: true, summary: { collections: rows.length }, collections: rows };
+  },
+
+  async allCollections() {
+    if (Zotero.Collections && Zotero.Collections.getByLibrary) {
+      return Zotero.Collections.getByLibrary(Zotero.Libraries.userLibraryID) || [];
+    }
+    return [];
+  },
+
+  async resolveCollectionIDs(args) {
+    let inputs = [];
+    if (Array.isArray(args.collections)) inputs = inputs.concat(args.collections);
+    if (Array.isArray(args.collectionKeys)) inputs = inputs.concat(args.collectionKeys.map(key => ({ key })));
+    if (Array.isArray(args.collectionNames)) inputs = inputs.concat(args.collectionNames.map(name => ({ name })));
+    if (args.collectionKey) inputs.push({ key: args.collectionKey });
+    if (args.collectionName) inputs.push({ name: args.collectionName });
+    if (!inputs.length) return { ids: [], details: [], missing: [] };
+
+    let collections = await this.allCollections();
+    let byKey = new Map();
+    let byID = new Map();
+    let byName = new Map();
+    for (let collection of collections) {
+      let report = this.collectionReport(collection);
+      if (!report) continue;
+      if (report.key) byKey.set(String(report.key), report);
+      if (report.collectionID !== undefined && report.collectionID !== null) byID.set(String(report.collectionID), report);
+      if (report.name) {
+        let key = String(report.name).toLowerCase();
+        if (!byName.has(key)) byName.set(key, []);
+        byName.get(key).push(report);
+      }
+    }
+
+    let ids = [];
+    let details = [];
+    let missing = [];
+    for (let input of inputs) {
+      let found = null;
+      if (typeof input === "number" || (typeof input === "string" && /^\d+$/.test(input))) {
+        found = byID.get(String(input));
+      }
+      else if (typeof input === "string") {
+        found = byKey.get(input);
+        if (!found) {
+          let matches = byName.get(input.toLowerCase()) || [];
+          if (matches.length === 1) found = matches[0];
+          else if (matches.length > 1) missing.push({ input, reason: "ambiguous-name", matches });
+        }
+      }
+      else if (input && typeof input === "object") {
+        if (input.id || input.collectionID) found = byID.get(String(input.id || input.collectionID));
+        if (!found && input.key) found = byKey.get(String(input.key));
+        if (!found && input.name) {
+          let matches = byName.get(String(input.name).toLowerCase()) || [];
+          if (matches.length === 1) found = matches[0];
+          else if (matches.length > 1) missing.push({ input, reason: "ambiguous-name", matches });
+        }
+      }
+      if (found) {
+        if (!ids.includes(found.collectionID)) ids.push(found.collectionID);
+        details.push(found);
+      }
+      else if (!missing.some(row => row.input === input)) {
+        missing.push({ input, reason: "not-found" });
+      }
+    }
+    return { ids, details, missing };
   },
 
   async operationSearchItems(args) {
@@ -1395,6 +1477,125 @@ var ZoteroManagementBridge = {
       }
       await item.save(saveOptions || {});
     });
+  },
+
+  normalizeCreator(creator) {
+    if (!creator || typeof creator !== "object") {
+      throw new Error("creator must be an object");
+    }
+    let normalized = Object.assign({}, creator);
+    normalized.creatorType = normalized.creatorType || "author";
+    if (!normalized.lastName && !normalized.name) {
+      throw new Error("creator requires lastName or name");
+    }
+    return normalized;
+  },
+
+  normalizeTag(tag) {
+    if (typeof tag === "string") return { tag };
+    if (tag && typeof tag === "object" && (tag.tag || tag.name)) {
+      return { tag: tag.tag || tag.name };
+    }
+    throw new Error("tag must be a string or object with tag/name");
+  },
+
+  normalizeCreateItemSpec(args) {
+    let item = args.item || args;
+    let itemType = item.itemType || "journalArticle";
+    let fields = Object.assign({}, item.fields || {});
+    let topLevelFieldNames = [
+      "title",
+      "DOI",
+      "url",
+      "date",
+      "publicationTitle",
+      "proceedingsTitle",
+      "journalAbbreviation",
+      "volume",
+      "issue",
+      "pages",
+      "ISSN",
+      "language",
+      "abstractNote",
+      "shortTitle",
+      "rights",
+      "extra"
+    ];
+    for (let field of topLevelFieldNames) {
+      if (item[field] !== undefined && fields[field] === undefined) fields[field] = item[field];
+    }
+    for (let field of Object.keys(fields)) {
+      this.assertSafeFieldName(field);
+    }
+    let creators = item.creators === undefined ? [] : item.creators;
+    if (!Array.isArray(creators)) throw new Error("creators must be an array");
+    let tags = item.tags === undefined ? [] : item.tags;
+    if (!Array.isArray(tags)) throw new Error("tags must be an array");
+    return {
+      itemType,
+      fields,
+      creators: creators.map(creator => this.normalizeCreator(creator)),
+      tags: tags.map(tag => this.normalizeTag(tag)),
+      collections: item.collections,
+      collectionKeys: item.collectionKeys,
+      collectionNames: item.collectionNames,
+      collectionKey: item.collectionKey,
+      collectionName: item.collectionName,
+      saveOptions: item.saveOptions || args.saveOptions || {}
+    };
+  },
+
+  async operationCreateItem(mode, args) {
+    let spec = this.normalizeCreateItemSpec(args);
+    if (!spec.fields.title) {
+      throw new Error("title is required for create-item");
+    }
+    let collectionResolution = await this.resolveCollectionIDs(spec);
+    let detail = {
+      action: mode === "apply" ? "created-item" : "would-create-item",
+      itemType: spec.itemType,
+      fields: spec.fields,
+      creators: spec.creators,
+      tags: spec.tags,
+      collections: collectionResolution.details,
+      missingCollections: collectionResolution.missing
+    };
+    let summary = {
+      requested: 1,
+      wouldCreate: mode === "apply" ? 0 : 1,
+      created: 0,
+      missingCollections: collectionResolution.missing.length,
+      failures: 0
+    };
+    if (collectionResolution.missing.length && args.requireCollections !== false) {
+      detail.action = "failed";
+      detail.error = "One or more requested collections were not found or ambiguous";
+      summary.failures = 1;
+      return { ok: false, summary, details: [detail] };
+    }
+
+    if (mode === "apply") {
+      let item = new Zotero.Item(spec.itemType);
+      item.libraryID = Zotero.Libraries.userLibraryID;
+      await Zotero.DB.executeTransaction(async () => {
+        for (let [field, value] of Object.entries(spec.fields)) {
+          item.setField(field, value);
+        }
+        if (spec.creators.length) item.setCreators(spec.creators);
+        if (spec.tags.length && item.setTags) item.setTags(spec.tags);
+        else if (spec.tags.length && item.addTag) {
+          for (let tag of spec.tags) item.addTag(tag.tag);
+        }
+        if (collectionResolution.ids.length && item.setCollections) item.setCollections(collectionResolution.ids);
+        await item.save(spec.saveOptions || {});
+      });
+      detail.key = item.key;
+      detail.itemID = item.id;
+      detail.report = this.itemReport(item);
+      summary.created = 1;
+    }
+
+    return { ok: summary.failures === 0, summary, details: [detail] };
   },
 
   async operationUpdateItemFields(mode, args) {

@@ -43,6 +43,7 @@ class MCPServerTests(unittest.TestCase):
         names = [tool["name"] for tool in response["result"]["tools"]]
         self.assertIn("zmb_request", names)
         self.assertIn("zmb_metadata_audit", names)
+        self.assertIn("zmb_create_item", names)
 
     def test_specific_tool_maps_to_bridge_operation(self):
         server = FakeServer()
@@ -73,6 +74,27 @@ class MCPServerTests(unittest.TestCase):
         })
         self.assertEqual(response["error"]["code"], -32602)
         self.assertIn("confirmApply", response["error"]["message"])
+
+    def test_create_item_maps_to_bridge_operation(self):
+        server = FakeServer()
+        response = mcp.handle_message(server, {
+            "jsonrpc": "2.0",
+            "id": 44,
+            "method": "tools/call",
+            "params": {
+                "name": "zmb_create_item",
+                "arguments": {
+                    "title": "A Nature Sensors article",
+                    "itemType": "journalArticle",
+                    "fields": {"DOI": "10.1038/s44460-026-00081-9"},
+                    "collectionName": "Nature Sensors",
+                },
+            },
+        })
+        self.assertTrue(response["result"]["structuredContent"]["ok"])
+        self.assertEqual(server.calls[0]["operation"], "create-item")
+        self.assertEqual(server.calls[0]["args"]["title"], "A Nature Sensors article")
+        self.assertEqual(server.calls[0]["args"]["collectionName"], "Nature Sensors")
 
     def test_apply_requires_server_enablement(self):
         server = mcp.ZoteroBridgeMCPServer(queue_root=Path("."), default_timeout=5, allow_apply=False)

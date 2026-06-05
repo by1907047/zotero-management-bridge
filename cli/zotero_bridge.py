@@ -52,16 +52,22 @@ DEFAULT_PLUGIN_QUEUE = default_plugin_queue()
 def load_args_json(value: str | None) -> dict:
     if not value:
         return {}
+    source = "inline --args-json"
     if value.startswith("@"):
-        text = Path(value[1:]).read_text(encoding="utf-8")
+        path = Path(value[1:])
+        source = f"@{path}"
+        text = path.read_text(encoding="utf-8-sig")
     else:
         text = value
     try:
         data = json.loads(text)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
         if '\\"' not in text:
-            raise
-        data = json.loads(text.replace('\\"', '"'))
+            raise ValueError(f"Could not parse JSON from {source}: {exc}") from exc
+        try:
+            data = json.loads(text.replace('\\"', '"'))
+        except json.JSONDecodeError as retry_exc:
+            raise ValueError(f"Could not parse JSON from {source}: {retry_exc}") from retry_exc
     if not isinstance(data, dict):
         raise ValueError("--args-json must decode to a JSON object")
     return data
@@ -96,14 +102,14 @@ def write_csv(path: Path, rows: list[dict]) -> None:
 
 def http_get_json(path: str):
     url = CONNECTOR + path
-    req = urllib.request.Request(url, headers={"User-Agent": "Zotero-Management-Bridge"})
+    req = urllib.request.Request(url)
     with urllib.request.urlopen(req, timeout=8) as resp:
         text = resp.read().decode("utf-8")
         return json.loads(text), resp.headers
 
 
 def http_get_text(path: str) -> str:
-    req = urllib.request.Request(CONNECTOR + path, headers={"User-Agent": "Zotero-Management-Bridge"})
+    req = urllib.request.Request(CONNECTOR + path)
     with urllib.request.urlopen(req, timeout=5) as resp:
         return resp.read().decode("utf-8", errors="replace")
 
@@ -345,10 +351,26 @@ def command_plugin_request(args: argparse.Namespace) -> int:
         ("relative_path", "relativePath"),
         ("title", "title"),
         ("content_type", "contentType"),
+        ("query", "query"),
+        ("doi", "doi"),
+        ("item_type", "itemType"),
+        ("year", "year"),
+        ("url", "url"),
+        ("date", "date"),
+        ("publication_title", "publicationTitle"),
+        ("journal_abbreviation", "journalAbbreviation"),
+        ("collection_key", "collectionKey"),
+        ("collection_name", "collectionName"),
     ]:
         value = getattr(args, cli_name, None)
         if value:
             request_args[arg_name] = value
+    if getattr(args, "limit", None):
+        request_args["limit"] = args.limit
+    if getattr(args, "creators_json", None):
+        request_args["creators"] = load_args_json(args.creators_json).get("creators", [])
+    if getattr(args, "tags", None):
+        request_args["tags"] = [tag.strip() for tag in args.tags.split(",") if tag.strip()]
     if getattr(args, "no_skip_existing", False):
         request_args["skipExisting"] = False
     if getattr(args, "skip_date_modified_update", False):
@@ -386,6 +408,15 @@ def command_plugin_request(args: argparse.Namespace) -> int:
     print(f"Plugin response written to: {archive_path}")
     if summary is not None:
         print(json.dumps(summary, ensure_ascii=True, indent=2))
+        if getattr(args, "print_items", False) and isinstance(response.get("items"), list):
+            for item in response["items"][: int(args.print_items_limit or 20)]:
+                fields = item.get("fields", {}) if isinstance(item, dict) else {}
+                print("\t".join([
+                    str(item.get("key", "")),
+                    str(fields.get("DOI", "")),
+                    str(fields.get("date", "")),
+                    str(item.get("title") or fields.get("title", "")),
+                ]))
     else:
         short = {key: response.get(key) for key in ["ok", "zoteroVersion", "pluginVersion", "queueRoot", "cloudBase", "userLibraryID"] if key in response}
         print(json.dumps(short, ensure_ascii=True, indent=2))
@@ -476,6 +507,21 @@ def build_parser() -> argparse.ArgumentParser:
     plugin_cmd.add_argument("--relative-path", help="Path relative to the linked attachment base directory")
     plugin_cmd.add_argument("--title", help="Attachment title")
     plugin_cmd.add_argument("--content-type", help="Attachment content type such as application/pdf")
+    plugin_cmd.add_argument("--query", help="Shortcut for args.query")
+    plugin_cmd.add_argument("--doi", help="Shortcut for args.doi / DOI")
+    plugin_cmd.add_argument("--item-type", help="Shortcut for args.itemType")
+    plugin_cmd.add_argument("--year", help="Shortcut for args.year")
+    plugin_cmd.add_argument("--limit", type=int, help="Shortcut for args.limit")
+    plugin_cmd.add_argument("--url", help="Shortcut for args.url")
+    plugin_cmd.add_argument("--date", help="Shortcut for args.date")
+    plugin_cmd.add_argument("--publication-title", help="Shortcut for args.publicationTitle")
+    plugin_cmd.add_argument("--journal-abbreviation", help="Shortcut for args.journalAbbreviation")
+    plugin_cmd.add_argument("--collection-key", help="Shortcut for args.collectionKey")
+    plugin_cmd.add_argument("--collection-name", help="Shortcut for args.collectionName")
+    plugin_cmd.add_argument("--creators-json", help="JSON object or @file containing a creators array")
+    plugin_cmd.add_argument("--tags", help="Comma-separated tag names")
+    plugin_cmd.add_argument("--print-items", action="store_true", help="Print a compact item table for responses with items")
+    plugin_cmd.add_argument("--print-items-limit", type=int, default=20)
     plugin_cmd.add_argument("--move", action="store_true", help="Move files instead of copying where supported")
     plugin_cmd.add_argument("--no-skip-existing", action="store_true", help="Allow duplicate attachment creation")
     plugin_cmd.add_argument("--skip-date-modified-update", action="store_true", help="Avoid updating the parent item modified date when supported")

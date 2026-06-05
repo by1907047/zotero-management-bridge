@@ -66,6 +66,7 @@ The adapter exposes these tools:
 - `zmb_metadata_audit`
 - `zmb_find_duplicate_attachments`
 - `zmb_cleanup_duplicate_attachments`
+- `zmb_create_item`
 - `zmb_update_item_fields`
 - `zmb_link_file_to_item`
 - `zmb_trash_items_by_key`
@@ -83,6 +84,8 @@ The generic wrapper accepts:
 ```
 
 Duplicate attachment tools report exact matches, probable same-kind matches, and review-only possible matches. Same-kind means main files compare with main files, supplementary files with supplementary files, snapshots with snapshots, and so on. Possible matches are useful when multiple primary files under one item have different names and larger size differences, but they are not auto-trashed.
+
+`zmb_create_item` creates a Zotero item from metadata that the client has already verified. It does not perform DOI lookup or web scraping. Use `dry-run` first, then `apply` only with `confirmApply:true` and server-side apply enabled.
 
 ## Apply Safety
 

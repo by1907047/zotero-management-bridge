@@ -213,6 +213,23 @@ async function testPossiblePrimaryDuplicatesCanBeDisabled() {
   assert.strictEqual(plan.summary.duplicateGroups, 0);
 }
 
+async function testCreateItemDryRunPlansMetadata() {
+  const subject = Object.create(bridge);
+  const plan = await subject.operationCreateItem("dry-run", {
+    itemType: "journalArticle",
+    title: "A Nature Sensors article",
+    DOI: "10.1038/s44460-026-00081-9",
+    publicationTitle: "Nature Sensors",
+    creators: [{ creatorType: "author", firstName: "Yuhao", lastName: "Wang" }],
+    tags: ["Nature Sensors"]
+  });
+  assert.strictEqual(plan.ok, true);
+  assert.strictEqual(plan.summary.wouldCreate, 1);
+  assert.strictEqual(plan.details[0].action, "would-create-item");
+  assert.strictEqual(plan.details[0].fields.DOI, "10.1038/s44460-026-00081-9");
+  assert.deepStrictEqual(plan.details[0].tags, [{ tag: "Nature Sensors" }]);
+}
+
 async function run() {
   testDuplicateTitlePreference();
   testChineseGenericTitle();
@@ -226,6 +243,7 @@ async function run() {
   await testNearDuplicateCatchesSnapshots();
   await testPossiblePrimaryDuplicatesAreReviewOnly();
   await testPossiblePrimaryDuplicatesCanBeDisabled();
+  await testCreateItemDryRunPlansMetadata();
   console.log("plugin helper tests passed");
 }
 

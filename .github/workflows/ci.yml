@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate JSON files
+        shell: pwsh
+        run: |
+          @'
+          import json
+          from pathlib import Path
+
+          paths = [
+              Path("plugin/manifest.json"),
+              Path("updates.json"),
+              *Path("schemas").glob("*.json"),
+              *Path("examples").glob("*.json"),
+          ]
+          for path in paths:
+              with path.open(encoding="utf-8") as handle:
+                  json.load(handle)
+              print(f"valid json: {path}")
+          '@ | python -
+
+      - name: Check plugin JavaScript
+        run: node --check plugin/src/zotero-management-bridge.js
+
+      - name: Check Python syntax
+        run: python -m py_compile cli/zotero_bridge.py mcp/zotero_management_bridge_mcp.py
+
+      - name: Run tests
+        shell: pwsh
+        run: |
+          node tests/test_plugin_helpers.js
+          python tests/test_cli_args_json.py
+          python tests/test_mcp_server.py
+
+      - name: Package XPI
+        shell: pwsh
+        run: |
+          ./scripts/package.ps1
+
+      - name: Validate XPI package
+        shell: pwsh
+        run: |
+          @'
+          import json
+          import zipfile
+          from pathlib import Path
+
+          manifest = json.loads(Path("plugin/manifest.json").read_text(encoding="utf-8"))
+          version = manifest["version"]
+          xpi = Path("dist") / f"zotero-management-bridge-{version}.xpi"
+          assert xpi.exists(), xpi
+          with zipfile.ZipFile(xpi) as archive:
+              names = archive.namelist()
+              required = {
+                  "manifest.json",
+                  "install.rdf",
+                  "bootstrap.js",
+                  "prefs.js",
+                  "src/zotero-management-bridge.js",
+              }
+              missing = required - set(names)
+              assert not missing, missing
+              assert all("\\" not in name for name in names), names
+              packed_manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+              packed_rdf = archive.read("install.rdf").decode("utf-8")
+              assert packed_manifest["version"] == version
+              assert f"<em:version>{version}</em:version>" in packed_rdf
+              assert "update_url" in packed_manifest["applications"]["zotero"]
+              assert "<em:updateURL>" in packed_rdf
+          print(f"validated {xpi}")
+          '@ | python -
+
+      - name: Privacy scan tracked files
+        shell: pwsh
+        run: |
+          $patterns = @(
+            ("C:\\Users\\" + "18355"),
+            ("OneDrive\\" + "文献"),
+            ("libproxy1" + ".nus.edu.sg"),
+            ("zheng.gong" + "@nus.edu.sg")
+          )
+          $files = git ls-files
+          foreach ($pattern in $patterns) {
+            $matches = Select-String -Path $files -Pattern ([regex]::Escape($pattern)) -ErrorAction SilentlyContinue
+            if ($matches) {
+              $matches | ForEach-Object { Write-Error "$($_.Path):$($_.LineNumber) contains private pattern '$pattern'" }
+              exit 1
+            }
+          }

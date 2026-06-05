@@ -51,6 +51,7 @@ Read-only:
 
 Dry-run first / write-capable:
 
+- `create-item`
 - `update-item-fields`
 - `link-file-to-item`
 - `import-file-to-item`
@@ -72,7 +73,7 @@ python cli/zotero_bridge.py plugin-request --operation status --wait
 Audit incomplete metadata without changing Zotero:
 
 ```powershell
-python cli/zotero_bridge.py plugin-request --operation metadata-audit --args-json '{"itemTypes":["journalArticle","conferencePaper"]}' --wait
+python cli/zotero_bridge.py plugin-request --operation metadata-audit --item-type journalArticle --wait
 ```
 
 Find duplicate attachments. The duplicate audit reports exact duplicates by size/hash, probable same-kind duplicates whose file sizes differ only slightly, and review-only possible duplicates for multiple primary files under the same Zotero item:
@@ -98,6 +99,14 @@ Update item fields by exact key:
 ```powershell
 python cli/zotero_bridge.py plugin-request --operation update-item-fields --mode dry-run --args-json '{"updates":[{"key":"ABCD1234","fields":{"DOI":"10.1234/example"}}]}' --wait
 ```
+
+Create an item from already-verified metadata:
+
+```powershell
+python cli/zotero_bridge.py plugin-request --operation create-item --mode dry-run --item-type journalArticle --title "Example article" --doi "10.1234/example" --publication-title "Example Journal" --collection-name "Example Collection" --wait
+```
+
+For complex requests on Windows, prefer `--args-json @request.json` to avoid shell quoting issues. UTF-8 JSON files with or without BOM are accepted.
 
 For request and response details, see `docs/api.md`.
 
@@ -149,6 +158,8 @@ The plugin reads these Zotero preferences:
 - `extensions.zoteroManagementBridge.intervalMs`
 
 If `queueRoot` is unset, the plugin uses a queue under the Zotero profile directory.
+
+`cloudBase` is the linked attachment root for workflows that copy stored files to local or cloud linked storage. It can be OneDrive, Dropbox, a local folder, NAS, or any user-managed directory. The bridge treats it as an attachment root; it does not infer or require a specific cloud provider. If it is not configured, read-only operations still work and status reports `attachmentRootConfigured:false`.
 
 See `examples/config.example.json`.
 

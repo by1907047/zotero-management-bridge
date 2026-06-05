@@ -27,6 +27,13 @@ class ArgsJsonTests(unittest.TestCase):
             data = zotero_bridge.load_args_json(f"@{path}")
         self.assertEqual(data, {"keys": ["ABC12345"]})
 
+    def test_load_file_args_json_with_bom(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "args.json"
+            path.write_text('{"query": "Nature Sensors"}', encoding="utf-8-sig")
+            data = zotero_bridge.load_args_json(f"@{path}")
+        self.assertEqual(data, {"query": "Nature Sensors"})
+
     def test_plugin_request_merges_args_json_and_shortcuts(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -45,6 +52,21 @@ class ArgsJsonTests(unittest.TestCase):
                 relative_path=None,
                 title=None,
                 content_type=None,
+                query="Nature Sensors",
+                doi=None,
+                item_type="journalArticle",
+                year=None,
+                limit=25,
+                url=None,
+                date=None,
+                publication_title=None,
+                journal_abbreviation=None,
+                collection_key=None,
+                collection_name=None,
+                creators_json=None,
+                tags=None,
+                print_items=False,
+                print_items_limit=20,
                 no_skip_existing=False,
                 skip_date_modified_update=False,
                 wait=False,
@@ -55,9 +77,11 @@ class ArgsJsonTests(unittest.TestCase):
             request = json.loads((root / "queue" / "requests" / "req1.json").read_text(encoding="utf-8"))
         self.assertEqual(request["operation"], "metadata-audit")
         self.assertEqual(request["mode"], "dry-run")
-        self.assertEqual(request["args"]["limit"], 10)
+        self.assertEqual(request["args"]["limit"], 25)
         self.assertEqual(request["args"]["keys"], ["AAA11111", "BBB22222"])
         self.assertEqual(request["args"]["cloudBase"], str(root / "cloud"))
+        self.assertEqual(request["args"]["query"], "Nature Sensors")
+        self.assertEqual(request["args"]["itemType"], "journalArticle")
 
 
 if __name__ == "__main__":

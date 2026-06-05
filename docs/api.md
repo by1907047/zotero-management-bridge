@@ -1,6 +1,6 @@
 # Zotero Management API
 
-Operation names are stable for the `v0.3.0-beta.2` community trial, but may still change before `v1.0`.
+Operation names are stable for the `v0.4.0-beta.0` community preview, but may still change before `v1.0`.
 
 ## Request Shape
 
@@ -33,7 +33,7 @@ Safety: read-only. Changes Zotero: no. Touches external files: no.
 {"operation":"status","mode":"dry-run","args":{}}
 ```
 
-Response includes Zotero version, plugin version, queue root, configured cloud base, and user library id.
+Response includes Zotero version, plugin version, queue root, configured attachment root/cloud base, whether an attachment root is configured, and user library id.
 
 ### `capabilities`
 
@@ -153,6 +153,35 @@ Duplicate rule:
 Response includes `duplicateGroups`, `confidence` (`exact`, `probable`, or `possible`), `evidenceType`, `canAutoTrash`, `keep`, `remove`, scores, reasons, skipped files, and summary counts.
 
 ## Write Operations
+
+### `create-item`
+
+Safety: dry-run-first. Changes Zotero in `apply`: creates one Zotero item. Touches external files: no.
+
+```json
+{
+  "operation": "create-item",
+  "mode": "dry-run",
+  "args": {
+    "itemType": "journalArticle",
+    "title": "Example article",
+    "DOI": "10.1234/example",
+    "publicationTitle": "Example Journal",
+    "date": "2026-06-06",
+    "creators": [
+      {
+        "creatorType": "author",
+        "firstName": "Ada",
+        "lastName": "Lovelace"
+      }
+    ],
+    "tags": ["example"],
+    "collectionName": "Example Collection"
+  }
+}
+```
+
+The bridge does not fetch DOI, Crossref, publisher, or web metadata. Clients should verify metadata first, then send it to `create-item`. Collection targeting accepts exact collection ids, keys, or unique names. By default, missing or ambiguous collections fail the request; pass `requireCollections:false` only when creating outside the requested collection is acceptable.
 
 ### `update-item-fields`
 

@@ -90,3 +90,4 @@ Before publishing a release:
 - `v0.3.0-beta.1`: same-kind near-size duplicate attachment audit for main files, supplementary files, snapshots, media, and data attachments.
 - `v0.3.0-beta.2`: review-only possible duplicate audit for multiple primary files under one item when names and sizes differ more.
 - `v0.3.0-beta.3`: add the legacy `install.rdf` update URL so self-hosted updates are discoverable from older install metadata.
+- `v0.4.0-beta.0`: community-preview release with `create-item`, MCP create support, configurable attachment-root messaging, CLI BOM handling, and CI.
