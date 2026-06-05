@@ -32,6 +32,8 @@ The plugin starts a local file queue under the Zotero profile directory by defau
 
 Release builds use GitHub Releases plus `updates.json`. Zotero can update the plugin when automatic updates are allowed for the add-on. `Default` follows Zotero's global add-on update setting; `On` always allows updates for this add-on; `Off` disables them for this add-on.
 
+If a user is stranded on an older beta that does not discover updates, install the latest `.xpi` manually once. From `v0.3.0-beta.3` onward, both `manifest.json` and legacy `install.rdf` include the hosted update URL.
+
 ## Supported Operations
 
 Read-only:
@@ -160,7 +162,7 @@ The generated `.xpi` appears under `dist/`.
 
 ## Updates
 
-Installed builds can update through Zotero when `manifest.json` points to a hosted `updates.json`.
+Installed builds can update through Zotero when `manifest.json` and `install.rdf` point to a hosted `updates.json`.
 
 This repository uses:
 
