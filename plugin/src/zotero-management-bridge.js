@@ -321,6 +321,15 @@ var ZoteroManagementBridge = {
       throw new Error(`Invalid mode: ${mode}`);
     }
     if (operation === "status") return await this.operationStatus(args);
+    if (operation === "capabilities") return await this.operationCapabilities(args);
+    if (operation === "list-collections") return await this.operationListCollections(args);
+    if (operation === "search-items") return await this.operationSearchItems(args);
+    if (operation === "get-items") return await this.operationGetItems(args);
+    if (operation === "get-item-children") return await this.operationGetItemChildren(args);
+    if (operation === "list-attachments") return await this.operationListAttachments(args);
+    if (operation === "metadata-audit") return await this.operationMetadataAudit(args);
+    if (operation === "find-duplicate-attachments") return await this.operationFindDuplicateAttachments(args);
+    if (operation === "cleanup-duplicate-attachments") return await this.operationCleanupDuplicateAttachments(mode, args);
     if (operation === "inspect") return await this.operationInspect(args);
     if (operation === "copy-stored-to-cloud") return await this.operationCopyStoredToCloud(mode, args);
     if (operation === "create-linked-copies") return await this.operationCreateLinkedCopies(mode, args);
@@ -343,6 +352,287 @@ var ZoteroManagementBridge = {
       reportMode: this.reportMode,
       userLibraryID: Zotero.Libraries.userLibraryID
     };
+  },
+
+  async operationCapabilities(args) {
+    return {
+      ok: true,
+      operations: {
+        readOnly: [
+          "status",
+          "capabilities",
+          "list-collections",
+          "search-items",
+          "get-items",
+          "get-item-children",
+          "list-attachments",
+          "metadata-audit",
+          "find-duplicate-attachments",
+          "inspect"
+        ],
+        writeDryRunFirst: [
+          "update-item-fields",
+          "link-file-to-item",
+          "import-file-to-item",
+          "copy-stored-to-cloud",
+          "create-linked-copies",
+          "cleanup-old-stored",
+          "cleanup-duplicate-attachments",
+          "trash-items-by-key",
+          "erase-trash-by-key"
+        ]
+      },
+      safety: {
+        arbitraryJavaScript: false,
+        directSQLiteWrites: false,
+        deletesExternalLinkedFiles: false,
+        mutatesAttachmentLinkModeInPlace: false,
+        batchWritesSupportDryRun: true
+      }
+    };
+  },
+
+  async allRegularItems() {
+    let search = new Zotero.Search();
+    search.libraryID = Zotero.Libraries.userLibraryID;
+    let ids = await search.search();
+    let items = await Zotero.Items.getAsync(ids);
+    return items.filter(item => {
+      if (!item) return false;
+      if (item.deleted) return false;
+      if (item.isAttachment && item.isAttachment()) return false;
+      if (item.isNote && item.isNote()) return false;
+      if (item.isAnnotation && item.isAnnotation()) return false;
+      if (item.isRegularItem && !item.isRegularItem()) return false;
+      return true;
+    });
+  },
+
+  itemField(item, field) {
+    try {
+      return item.getField ? (item.getField(field) || "") : "";
+    }
+    catch (e) {
+      return "";
+    }
+  },
+
+  itemReport(item, options = {}) {
+    let fields = options.fields || [
+      "title",
+      "DOI",
+      "url",
+      "date",
+      "publicationTitle",
+      "proceedingsTitle",
+      "journalAbbreviation",
+      "volume",
+      "issue",
+      "pages"
+    ];
+    let report = {
+      key: item.key,
+      itemID: item.id,
+      itemType: item.itemType,
+      title: this.itemField(item, "title"),
+      dateAdded: item.dateAdded || "",
+      dateModified: item.dateModified || "",
+      fields: {},
+      creators: this.getCreatorsForReport(item),
+      collections: item.getCollections ? item.getCollections() : [],
+      tags: item.getTags ? item.getTags().map(tag => tag.tag || tag.name || tag) : []
+    };
+    for (let field of fields) {
+      report.fields[field] = this.itemField(item, field);
+    }
+    return report;
+  },
+
+  async operationListCollections(args) {
+    let collections = [];
+    if (Zotero.Collections && Zotero.Collections.getByLibrary) {
+      collections = Zotero.Collections.getByLibrary(Zotero.Libraries.userLibraryID) || [];
+    }
+    let rows = collections.map(collection => ({
+      collectionID: collection.id || collection.collectionID,
+      key: collection.key,
+      name: collection.name,
+      parentCollectionID: collection.parentID || null
+    }));
+    let byID = new Map(rows.map(row => [row.collectionID, row]));
+    for (let row of rows) {
+      let parts = [];
+      let cursor = row;
+      let seen = new Set();
+      while (cursor && !seen.has(cursor.collectionID)) {
+        seen.add(cursor.collectionID);
+        parts.unshift(cursor.name);
+        cursor = byID.get(cursor.parentCollectionID);
+      }
+      row.path = parts.join(" / ");
+    }
+    rows.sort((a, b) => (a.path || "").localeCompare(b.path || ""));
+    return { ok: true, summary: { collections: rows.length }, collections: rows };
+  },
+
+  async operationSearchItems(args) {
+    let query = (args.query || "").toLowerCase();
+    let doi = (args.DOI || args.doi || "").toLowerCase();
+    let itemType = args.itemType || "";
+    let year = args.year ? String(args.year) : "";
+    let limit = Number.isFinite(args.limit) ? args.limit : parseInt(args.limit || "100", 10);
+    if (!Number.isFinite(limit) || limit <= 0) limit = 100;
+
+    let items = await this.allRegularItems();
+    let matches = [];
+    for (let item of items) {
+      let report = this.itemReport(item);
+      let haystack = [
+        report.title,
+        report.fields.DOI,
+        report.fields.publicationTitle,
+        report.fields.proceedingsTitle,
+        report.creators.map(creator => `${creator.firstName || ""} ${creator.lastName || ""}`).join(" ")
+      ].join(" ").toLowerCase();
+      if (itemType && report.itemType !== itemType) continue;
+      if (doi && (report.fields.DOI || "").toLowerCase() !== doi) continue;
+      if (year && !(report.fields.date || "").startsWith(year)) continue;
+      if (query && !haystack.includes(query)) continue;
+      matches.push(report);
+      if (matches.length >= limit) break;
+    }
+    return { ok: true, summary: { checkedItems: items.length, returnedItems: matches.length }, items: matches };
+  },
+
+  async operationGetItems(args) {
+    let keys = args.keys || (args.key ? [args.key] : []);
+    if (!Array.isArray(keys) || !keys.length) throw new Error("args.keys must be a non-empty array");
+    let details = [];
+    let summary = { requested: keys.length, found: 0, missing: 0 };
+    for (let key of keys) {
+      let item = await this.getItemByKey(key);
+      if (!item) {
+        details.push({ key, action: "missing" });
+        summary.missing++;
+        continue;
+      }
+      details.push(this.itemReport(item));
+      summary.found++;
+    }
+    return { ok: true, summary, items: details };
+  },
+
+  async operationGetItemChildren(args) {
+    let keys = args.keys || (args.key ? [args.key] : []);
+    if (!Array.isArray(keys) || !keys.length) throw new Error("args.keys must be a non-empty array");
+    let details = [];
+    let summary = { requested: keys.length, found: 0, missing: 0, attachments: 0, notes: 0 };
+    for (let key of keys) {
+      let item = await this.getItemByKey(key);
+      if (!item) {
+        details.push({ key, action: "missing" });
+        summary.missing++;
+        continue;
+      }
+      let attachmentIDs = item.getAttachments ? item.getAttachments() : [];
+      let noteIDs = item.getNotes ? item.getNotes(false) : [];
+      let attachments = await Zotero.Items.getAsync(attachmentIDs);
+      let notes = await Zotero.Items.getAsync(noteIDs);
+      let cloudBase = this.getCloudBase(args);
+      details.push({
+        key,
+        itemID: item.id,
+        title: this.itemField(item, "title"),
+        attachments: attachments.filter(Boolean).map(attachment => this.attachmentDetail(attachment, cloudBase)),
+        notes: notes.filter(Boolean).map(note => ({
+          key: note.key,
+          itemID: note.id,
+          title: this.itemField(note, "title")
+        }))
+      });
+      summary.found++;
+      summary.attachments += attachmentIDs.length;
+      summary.notes += noteIDs.length;
+    }
+    return { ok: true, summary, items: details };
+  },
+
+  attachmentCategory(attachment) {
+    if (attachment.isLinkedFileAttachment && attachment.isLinkedFileAttachment()) return "linked-file";
+    if (attachment.attachmentLinkMode === Zotero.Attachments.LINK_MODE_LINKED_URL) return "linked-url";
+    if ((attachment.attachmentContentType || "").toLowerCase() === "text/html") return "html-snapshot";
+    if (attachment.isStoredFileAttachment && attachment.isStoredFileAttachment()) return "stored-file";
+    return "other";
+  },
+
+  async operationListAttachments(args) {
+    let attachments = await this.allAttachmentItems();
+    let cloudBase = this.getCloudBase(args);
+    let categoryFilter = args.category || "";
+    let contentTypeFilter = (args.contentType || "").toLowerCase();
+    let details = [];
+    let summary = { checkedAttachments: attachments.length, returnedAttachments: 0 };
+    for (let attachment of attachments) {
+      let category = this.attachmentCategory(attachment);
+      if (categoryFilter && category !== categoryFilter) continue;
+      if (contentTypeFilter && (attachment.attachmentContentType || "").toLowerCase() !== contentTypeFilter) continue;
+      let detail = this.attachmentDetail(attachment, cloudBase);
+      detail.category = category;
+      details.push(detail);
+      summary.returnedAttachments++;
+    }
+    return { ok: true, summary, details };
+  },
+
+  metadataMissingFieldsForReport(report, args = {}) {
+    let missing = [];
+    let doiTypes = args.doiItemTypes || ["journalArticle", "conferencePaper"];
+    let dateTypes = args.dateItemTypes || ["journalArticle", "conferencePaper"];
+    if (!report.title) missing.push("title");
+    if (doiTypes.includes(report.itemType) && !report.fields.DOI) missing.push("DOI");
+    if (dateTypes.includes(report.itemType) && !report.fields.date) missing.push("date");
+    if (report.itemType === "journalArticle" && !report.fields.publicationTitle) missing.push("publicationTitle");
+    if (report.itemType === "conferencePaper" && !report.fields.proceedingsTitle) missing.push("proceedingsTitle");
+    if (!report.creators || !report.creators.length) missing.push("creators");
+    return missing;
+  },
+
+  async operationMetadataAudit(args) {
+    let items = await this.allRegularItems();
+    let itemTypes = Array.isArray(args.itemTypes) ? new Set(args.itemTypes) : null;
+    let details = [];
+    let summary = {
+      checkedItems: 0,
+      incompleteItems: 0,
+      missingTitle: 0,
+      missingDOI: 0,
+      missingDate: 0,
+      missingPublication: 0,
+      missingCreators: 0
+    };
+    for (let item of items) {
+      if (itemTypes && !itemTypes.has(item.itemType)) continue;
+      summary.checkedItems++;
+      let report = this.itemReport(item);
+      let missing = this.metadataMissingFieldsForReport(report, args);
+      if (!missing.length) continue;
+      summary.incompleteItems++;
+      if (missing.includes("title")) summary.missingTitle++;
+      if (missing.includes("DOI")) summary.missingDOI++;
+      if (missing.includes("date")) summary.missingDate++;
+      if (missing.includes("publicationTitle") || missing.includes("proceedingsTitle")) summary.missingPublication++;
+      if (missing.includes("creators")) summary.missingCreators++;
+      details.push({
+        key: report.key,
+        itemID: report.itemID,
+        itemType: report.itemType,
+        title: report.title,
+        missing,
+        fields: report.fields,
+        creators: report.creators
+      });
+    }
+    return { ok: true, summary, details };
   },
 
   async operationInspect(args) {
@@ -413,6 +703,254 @@ var ZoteroManagementBridge = {
       sourcePath: expectedPath,
       cloudTarget: cloudBase ? PathUtils.join(cloudBase, "storage", attachment.key, name) : null
     };
+  },
+
+  genericAttachmentTitleSet() {
+    return new Set([
+      "pdf",
+      "full text pdf",
+      "full text",
+      "fulltext",
+      "article pdf",
+      "publisher full text pdf",
+      "iop full text pdf",
+      "\u5168\u6587"
+    ]);
+  },
+
+  normalizedAttachmentTitle(title) {
+    return (title || "").replace(/\s+/g, " ").trim().toLowerCase();
+  },
+
+  duplicateAttachmentScore(detail) {
+    let title = detail.title || "";
+    let normalizedTitle = this.normalizedAttachmentTitle(title);
+    let fileName = detail.fileName || this.leafName(detail.sourcePath || detail.path || "");
+    let score = 0;
+    if (!this.genericAttachmentTitleSet().has(normalizedTitle)) score += 100;
+    if (title.length > 20) score += Math.min(title.length, 140);
+    if (/\b(19|20)\d{2}\b/.test(title)) score += 20;
+    if (fileName.length > 20) score += Math.floor(Math.min(fileName.length, 120) / 2);
+    score -= (detail.itemID || 0) / 1000000;
+    return score;
+  },
+
+  chooseDuplicateAttachmentKeep(details) {
+    let sorted = details.slice().sort((a, b) => {
+      let scoreDelta = this.duplicateAttachmentScore(b) - this.duplicateAttachmentScore(a);
+      if (scoreDelta !== 0) return scoreDelta;
+      return (a.itemID || 0) - (b.itemID || 0);
+    });
+    return {
+      keep: sorted[0],
+      remove: sorted.slice(1)
+    };
+  },
+
+  async fileSize(path) {
+    if (!path) return { exists: false, error: "missing path" };
+    try {
+      if (typeof IOUtils !== "undefined" && IOUtils.stat) {
+        let stat = await IOUtils.stat(path);
+        return { exists: true, size: stat.size };
+      }
+    }
+    catch (e) {
+      return { exists: false, error: String(e && e.message || e) };
+    }
+    try {
+      let file = Zotero.File.pathToFile(path);
+      if (!file || !file.exists()) return { exists: false, error: "file missing" };
+      return { exists: true, size: file.fileSize };
+    }
+    catch (e) {
+      return { exists: false, error: String(e && e.message || e) };
+    }
+  },
+
+  async sha256File(path) {
+    let classes = typeof Cc !== "undefined" ? Cc : Components.classes;
+    let interfaces = typeof Ci !== "undefined" ? Ci : Components.interfaces;
+    let stream = classes["@mozilla.org/network/file-input-stream;1"].createInstance(interfaces.nsIFileInputStream);
+    try {
+      let file = Zotero.File.pathToFile(path);
+      stream.init(file, -1, 0, 0);
+      let hash = classes["@mozilla.org/security/hash;1"].createInstance(interfaces.nsICryptoHash);
+      hash.init(hash.SHA256);
+      hash.updateFromStream(stream, -1);
+      let binary = hash.finish(false);
+      let hex = "";
+      for (let i = 0; i < binary.length; i++) {
+        hex += ("0" + binary.charCodeAt(i).toString(16)).slice(-2);
+      }
+      return hex;
+    }
+    finally {
+      try {
+        stream.close();
+      }
+      catch (e) {}
+    }
+  },
+
+  duplicateGroupKey(detail, size) {
+    return [
+      detail.parentItemID || "",
+      detail.contentType || "",
+      size
+    ].join("|");
+  },
+
+  async buildDuplicateAttachmentPlan(args = {}) {
+    let cloudBase = this.getCloudBase(args);
+    let attachments = await this.allAttachmentItems();
+    let includeStoredFiles = !!args.includeStoredFiles;
+    let maxHashCandidateAttachments = parseInt(args.maxHashCandidateAttachments || "200", 10);
+    if (!Number.isFinite(maxHashCandidateAttachments) || maxHashCandidateAttachments <= 0) {
+      maxHashCandidateAttachments = 200;
+    }
+
+    let summary = {
+      checkedAttachments: attachments.length,
+      fileAttachments: 0,
+      sizeCandidateGroups: 0,
+      hashCandidateAttachments: 0,
+      duplicateGroups: 0,
+      removableAttachments: 0,
+      missingFiles: 0,
+      hashFailures: 0,
+      skippedHashLimit: false
+    };
+    let sizeGroups = new Map();
+    let skipped = [];
+
+    for (let attachment of attachments) {
+      let category = this.attachmentCategory(attachment);
+      if (category !== "linked-file" && !(includeStoredFiles && category === "stored-file")) continue;
+      let detail = this.attachmentDetail(attachment, cloudBase);
+      detail.category = category;
+      summary.fileAttachments++;
+      let sizeInfo = await this.fileSize(detail.sourcePath);
+      if (!sizeInfo.exists) {
+        summary.missingFiles++;
+        skipped.push(Object.assign(detail, { action: "skip-file-missing", error: sizeInfo.error || "" }));
+        continue;
+      }
+      detail.size = sizeInfo.size;
+      let key = this.duplicateGroupKey(detail, sizeInfo.size);
+      if (!sizeGroups.has(key)) sizeGroups.set(key, []);
+      sizeGroups.get(key).push(detail);
+    }
+
+    let candidateGroups = Array.from(sizeGroups.values()).filter(group => group.length > 1);
+    summary.sizeCandidateGroups = candidateGroups.length;
+    summary.hashCandidateAttachments = candidateGroups.reduce((total, group) => total + group.length, 0);
+    if (summary.hashCandidateAttachments > maxHashCandidateAttachments) {
+      summary.skippedHashLimit = true;
+      return {
+        ok: false,
+        summary,
+        duplicateGroups: [],
+        removeKeys: [],
+        skipped,
+        sizeCandidateGroups: candidateGroups.map(group => ({
+          parentItemID: group[0].parentItemID,
+          contentType: group[0].contentType,
+          size: group[0].size,
+          keys: group.map(detail => detail.key)
+        })),
+        error: `Hash candidate limit exceeded: ${summary.hashCandidateAttachments} > ${maxHashCandidateAttachments}`
+      };
+    }
+
+    let hashGroups = new Map();
+    for (let group of candidateGroups) {
+      for (let detail of group) {
+        try {
+          detail.sha256 = await this.sha256File(detail.sourcePath);
+          let hashKey = [
+            detail.parentItemID || "",
+            detail.contentType || "",
+            detail.size,
+            detail.sha256
+          ].join("|");
+          if (!hashGroups.has(hashKey)) hashGroups.set(hashKey, []);
+          hashGroups.get(hashKey).push(detail);
+        }
+        catch (e) {
+          summary.hashFailures++;
+          skipped.push(Object.assign(detail, { action: "skip-hash-failed", error: String(e && e.message || e) }));
+        }
+      }
+    }
+
+    let duplicateGroups = [];
+    let removeKeys = [];
+    for (let group of hashGroups.values()) {
+      if (group.length <= 1) continue;
+      let choice = this.chooseDuplicateAttachmentKeep(group);
+      let keep = choice.keep;
+      let remove = choice.remove;
+      let duplicateGroup = {
+        parentItemID: keep.parentItemID || null,
+        contentType: keep.contentType || "",
+        size: keep.size,
+        sha256: keep.sha256,
+        reason: "same-parent-same-content-type-same-size-same-sha256",
+        keep: Object.assign({}, keep, {
+          score: this.duplicateAttachmentScore(keep),
+          keepReason: "highest-descriptive-title-score"
+        }),
+        remove: remove.map(detail => Object.assign({}, detail, {
+          score: this.duplicateAttachmentScore(detail),
+          removeReason: "duplicate-content-lower-title-score"
+        }))
+      };
+      duplicateGroups.push(duplicateGroup);
+      for (let detail of remove) removeKeys.push(detail.key);
+    }
+
+    summary.duplicateGroups = duplicateGroups.length;
+    summary.removableAttachments = removeKeys.length;
+    duplicateGroups.sort((a, b) => {
+      let parentDelta = (a.parentItemID || 0) - (b.parentItemID || 0);
+      if (parentDelta !== 0) return parentDelta;
+      return (a.keep.title || "").localeCompare(b.keep.title || "");
+    });
+    return { ok: summary.hashFailures === 0, summary, duplicateGroups, removeKeys, skipped };
+  },
+
+  async operationFindDuplicateAttachments(args) {
+    return await this.buildDuplicateAttachmentPlan(args);
+  },
+
+  async operationCleanupDuplicateAttachments(mode, args) {
+    let plan = await this.buildDuplicateAttachmentPlan(args);
+    plan.operation = "cleanup-duplicate-attachments";
+    plan.mode = mode;
+    if (!plan.ok || !plan.removeKeys.length || mode !== "apply") {
+      if (mode !== "apply") {
+        plan.summary.wouldTrash = plan.removeKeys.length;
+      }
+      return plan;
+    }
+    let ids = [];
+    let trashDetails = [];
+    for (let key of plan.removeKeys) {
+      let item = await this.getItemByKey(key);
+      if (!item) {
+        trashDetails.push({ key, action: "missing" });
+        continue;
+      }
+      ids.push(item.id);
+      trashDetails.push({ key, itemID: item.id, action: "queued-trash" });
+    }
+    if (ids.length) {
+      await Zotero.Items.trashTx(ids);
+    }
+    plan.summary.trashed = ids.length;
+    plan.trashDetails = trashDetails;
+    return plan;
   },
 
   isAbsoluteWindowsPath(path) {
@@ -992,3 +1530,7 @@ var ZoteroManagementBridge = {
     return { ok: summary.failures === 0, summary, details };
   }
 };
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = ZoteroManagementBridge;
+}

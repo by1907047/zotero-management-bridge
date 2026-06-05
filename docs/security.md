@@ -11,6 +11,8 @@ Zotero plugins run with high local privileges. This bridge is designed around ex
 - Do not perform fuzzy or title-based deletion.
 - Prefer `dry-run` before `apply` for all write operations.
 - Permanent deletion must target exact item keys already in Zotero Trash.
+- Batch cleanup must produce explicit keep/remove plans before `apply`.
+- Duplicate attachment cleanup must not hash the whole library. It first narrows candidates by same parent item, same content type, and same file size.
 
 ## Operation Classes
 
@@ -18,6 +20,30 @@ Zotero plugins run with high local privileges. This bridge is designed around ex
 - Write: requires `mode`.
 - Destructive: requires exact keys and dry-run review.
 - Heavy: may inspect many files and should support limits or pagination.
+
+## Boundaries
+
+The bridge is deliberately not:
+
+- a paper downloader
+- a publisher crawler
+- a DOI/Crossref metadata fetcher
+- a general local automation or arbitrary JavaScript endpoint
+- a tool for deleting cloud or external attachment files
+
+Clients can fetch metadata or files externally, validate them, and then ask the bridge to write exact Zotero records or attachment links.
+
+## Duplicate Attachment Cleanup
+
+`find-duplicate-attachments` and `cleanup-duplicate-attachments` use a conservative rule:
+
+1. Compare only attachments under the same parent Zotero item.
+2. Require the same content type.
+3. Require the same file size before hashing.
+4. Hash only those size candidates.
+5. Trash only extra Zotero attachment records in `apply`.
+
+External linked files are never removed by this operation.
 
 ## Reports
 

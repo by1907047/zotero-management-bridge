@@ -29,6 +29,24 @@ DEFAULT_PLUGIN_QUEUE = Path(os.environ.get("ZMB_QUEUE_ROOT", Path.home() / ".zot
 STORED_LINK_MODES = {"imported_file", "imported_url"}
 
 
+def load_args_json(value: str | None) -> dict:
+    if not value:
+        return {}
+    if value.startswith("@"):
+        text = Path(value[1:]).read_text(encoding="utf-8")
+    else:
+        text = value
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        if '\\"' not in text:
+            raise
+        data = json.loads(text.replace('\\"', '"'))
+    if not isinstance(data, dict):
+        raise ValueError("--args-json must decode to a JSON object")
+    return data
+
+
 def timestamp() -> str:
     return dt.datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -293,33 +311,6 @@ def command_copy_stored_to_cloud(args: argparse.Namespace) -> int:
     return 1 if summary["failures"] else 0
 
 
-def load_template() -> str:
-    template_path = Path(__file__).resolve().parents[2] / "templates" / "zotero_bridge_internal_template.js"
-    return template_path.read_text(encoding="utf-8")
-
-
-def command_make_zotero_js(args: argparse.Namespace) -> int:
-    dry_run = args.mode == "dry-run"
-    operation = args.operation
-    report_name = f"zotero_management_bridge_{operation}_{'DRY_RUN' if dry_run else 'APPLY'}_{timestamp()}_zotero_report.json"
-    script_name = f"zotero_management_bridge_{operation}_{'DRY_RUN' if dry_run else 'APPLY'}_{timestamp()}.js"
-    report_path = ensure_dir(args.report_dir) / report_name
-    script_path = ensure_dir(args.report_dir) / script_name
-    text = load_template()
-    replacements = {
-        "__OPERATION__": operation,
-        "__DRY_RUN__": "true" if dry_run else "false",
-        "__CLOUD_ROOT__": json.dumps(str(args.cloud_root), ensure_ascii=False),
-        "__REPORT_PATH__": json.dumps(str(report_path), ensure_ascii=False),
-    }
-    for key, value in replacements.items():
-        text = text.replace(key, value)
-    script_path.write_text(text, encoding="utf-8")
-    print(f"Zotero-internal script written to: {script_path}")
-    print(f"Expected report path: {report_path}")
-    return 0
-
-
 def command_plugin_request(args: argparse.Namespace) -> int:
     request_id = args.id or f"{args.operation}_{timestamp()}_{uuid.uuid4().hex[:8]}"
     queue = args.queue_root
@@ -328,14 +319,15 @@ def command_plugin_request(args: argparse.Namespace) -> int:
     ensure_dir(queue / "processed")
     ensure_dir(queue / "failed")
 
+    request_args = load_args_json(args.args_json)
+    if "cloudBase" not in request_args:
+        request_args["cloudBase"] = str(args.cloud_root)
     request = {
         "id": request_id,
         "operation": args.operation,
         "mode": args.mode,
         "createdAt": dt.datetime.now().isoformat(timespec="seconds"),
-        "args": {
-            "cloudBase": str(args.cloud_root)
-        }
+        "args": request_args,
     }
     if args.keys:
         request["args"]["keys"] = [key.strip() for key in args.keys.split(",") if key.strip()]
@@ -408,25 +400,12 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--apply", action="store_true")
 
-    js_cmd = sub.add_parser("make-zotero-js", parents=[common])
-    js_cmd.add_argument("--operation", choices=["create-linked-copies", "cleanup-old-stored"], required=True)
-    js_cmd.add_argument("--mode", choices=["dry-run", "apply"], required=True)
-
     plugin_cmd = sub.add_parser("plugin-request", parents=[common])
-    plugin_cmd.add_argument("--operation", choices=[
-        "status",
-        "inspect",
-        "copy-stored-to-cloud",
-        "create-linked-copies",
-        "cleanup-old-stored",
-        "link-file-to-item",
-        "import-file-to-item",
-        "trash-items-by-key",
-        "erase-trash-by-key",
-    ], required=True)
+    plugin_cmd.add_argument("--operation", required=True, help="Bridge operation name, for example status or metadata-audit")
     plugin_cmd.add_argument("--mode", choices=["dry-run", "apply"], default="dry-run")
     plugin_cmd.add_argument("--queue-root", type=Path, default=DEFAULT_PLUGIN_QUEUE)
     plugin_cmd.add_argument("--id")
+    plugin_cmd.add_argument("--args-json", help="JSON object, or @path-to-json, merged into request args before shortcut flags")
     plugin_cmd.add_argument("--keys", help="Comma-separated Zotero item keys for key-targeted operations")
     plugin_cmd.add_argument("--parent-key", help="Parent Zotero item key for attachment operations")
     plugin_cmd.add_argument("--file-path", help="Absolute file path for attachment operations")
@@ -451,8 +430,6 @@ def main(argv: list[str] | None = None) -> int:
         return command_inspect(args)
     if args.command == "copy-stored-to-cloud":
         return command_copy_stored_to_cloud(args)
-    if args.command == "make-zotero-js":
-        return command_make_zotero_js(args)
     if args.command == "plugin-request":
         return command_plugin_request(args)
     parser.error("Unknown command")

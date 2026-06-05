@@ -1,19 +1,19 @@
-﻿{
-    "addons":  {
-                   "zotero-management-bridge@example.org":  {
-                                                                "updates":  [
-                                                                                {
-                                                                                    "version":  "0.2.0-alpha.5",
-                                                                                    "update_link":  "https://github.com/by1907047/zotero-management-bridge/releases/download/v0.2.0-alpha.5/zotero-management-bridge-0.2.0-alpha.5.xpi",
-                                                                                    "update_hash":  "sha256:a55a3a614ce78b6d08260b8844607d59059f517b204e24c15a99edf645149dce",
-                                                                                    "applications":  {
-                                                                                                         "zotero":  {
-                                                                                                                        "strict_min_version":  "6.999",
-                                                                                                                        "strict_max_version":  "9.*"
-                                                                                                                    }
-                                                                                                     }
-                                                                                }
-                                                                            ]
-                                                            }
-               }
+{
+  "addons": {
+    "zotero-management-bridge@example.org": {
+      "updates": [
+        {
+          "version": "0.3.0-beta.0",
+          "update_link": "https://github.com/by1907047/zotero-management-bridge/releases/download/v0.3.0-beta.0/zotero-management-bridge-0.3.0-beta.0.xpi",
+          "update_hash": "sha256:1cc3518e3eff86cdc18a31ad731f1a33a10164d617e9b9aabdae7595bd1d6796",
+          "applications": {
+            "zotero": {
+              "strict_min_version": "6.999",
+              "strict_max_version": "9.*"
+            }
+          }
+        }
+      ]
+    }
+  }
 }

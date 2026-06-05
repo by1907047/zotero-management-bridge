@@ -19,21 +19,85 @@ The bridge is intentionally not a web scraper, downloader, or arbitrary JavaScri
 - `maintenance-*`: stored-file to cloud copy, linked-copy creation, old stored attachment cleanup, path repair.
 - `report-*`: structured responses and optional JSON reports for batch or dangerous operations.
 
-## Current Seed Operations
+## Install
 
-The initial alpha is seeded from a locally validated bridge and currently includes:
+1. Download the `.xpi` from the latest GitHub Release.
+2. Open Zotero -> Tools -> Plugins.
+3. Choose "Install Plugin From File..." and select the `.xpi`.
+4. Restart Zotero if prompted.
+
+The plugin starts a local file queue under the Zotero profile directory by default. A client writes request JSON into `requests/`, and the plugin writes response JSON into `responses/`.
+
+## Update
+
+Release builds use GitHub Releases plus `updates.json`. Zotero can update the plugin when automatic updates are allowed for the add-on. `Default` follows Zotero's global add-on update setting; `On` always allows updates for this add-on; `Off` disables them for this add-on.
+
+## Supported Operations
+
+Read-only:
 
 - `status`
+- `capabilities`
+- `list-collections`
+- `search-items`
+- `get-items`
+- `get-item-children`
+- `list-attachments`
+- `metadata-audit`
+- `find-duplicate-attachments`
 - `inspect`
+
+Dry-run first / write-capable:
+
+- `update-item-fields`
+- `link-file-to-item`
+- `import-file-to-item`
 - `copy-stored-to-cloud`
 - `create-linked-copies`
 - `cleanup-old-stored`
-- `link-file-to-item`
-- `import-file-to-item`
+- `cleanup-duplicate-attachments`
 - `trash-items-by-key`
 - `erase-trash-by-key`
 
-More query and CRUD operations are planned in `docs/api.md`.
+## CLI Examples
+
+Check that the bridge is alive:
+
+```powershell
+python cli/zotero_bridge.py plugin-request --operation status --wait
+```
+
+Audit incomplete metadata without changing Zotero:
+
+```powershell
+python cli/zotero_bridge.py plugin-request --operation metadata-audit --args-json '{"itemTypes":["journalArticle","conferencePaper"]}' --wait
+```
+
+Find duplicate attachments. The duplicate rule first groups by the same parent item, content type, and file size, and only hashes those candidates:
+
+```powershell
+python cli/zotero_bridge.py plugin-request --operation find-duplicate-attachments --args-json '{"maxHashCandidateAttachments":200}' --wait
+```
+
+Preview duplicate cleanup. This only plans extra Zotero attachment records to move to Trash:
+
+```powershell
+python cli/zotero_bridge.py plugin-request --operation cleanup-duplicate-attachments --mode dry-run --wait
+```
+
+Apply only after reviewing the dry-run response:
+
+```powershell
+python cli/zotero_bridge.py plugin-request --operation cleanup-duplicate-attachments --mode apply --args-json '{"maxHashCandidateAttachments":200}' --wait
+```
+
+Update item fields by exact key:
+
+```powershell
+python cli/zotero_bridge.py plugin-request --operation update-item-fields --mode dry-run --args-json '{"updates":[{"key":"ABCD1234","fields":{"DOI":"10.1234/example"}}]}' --wait
+```
+
+For request and response details, see `docs/api.md`.
 
 ## Safety Model
 
@@ -76,6 +140,10 @@ https://raw.githubusercontent.com/by1907047/zotero-management-bridge/main/update
 ```
 
 Release assets should be uploaded to GitHub Releases, and `updates.json` should point to the matching `.xpi` with a SHA-256 `update_hash`.
+
+## API Documentation
+
+See [docs/api.md](docs/api.md) for request/response examples and operation safety levels.
 
 ## Compatibility
 
