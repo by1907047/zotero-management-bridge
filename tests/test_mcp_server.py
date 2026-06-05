@@ -1,6 +1,7 @@
 import unittest
 from pathlib import Path
 import sys
+import io
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "mcp"))
@@ -91,6 +92,22 @@ class MCPServerTests(unittest.TestCase):
         })
         self.assertEqual(response["error"]["code"], -32602)
         self.assertIn("--allow-apply", response["error"]["message"])
+
+    def test_write_message_uses_utf8_buffer(self):
+        original_stdout = sys.stdout
+        buffer = io.BytesIO()
+
+        class FakeStdout:
+            def __init__(self, inner):
+                self.buffer = inner
+
+        try:
+            sys.stdout = FakeStdout(buffer)
+            mcp.write_message({"jsonrpc": "2.0", "id": 6, "result": {"text": "中文"}})
+        finally:
+            sys.stdout = original_stdout
+
+        self.assertIn("中文".encode("utf-8"), buffer.getvalue())
 
 
 if __name__ == "__main__":

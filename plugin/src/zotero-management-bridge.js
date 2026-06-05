@@ -714,6 +714,10 @@ var ZoteroManagementBridge = {
       "article pdf",
       "publisher full text pdf",
       "iop full text pdf",
+      "snapshot",
+      "webpage snapshot",
+      "web page snapshot",
+      "html snapshot",
       "\u5168\u6587"
     ]);
   },
@@ -733,6 +737,121 @@ var ZoteroManagementBridge = {
     if (fileName.length > 20) score += Math.floor(Math.min(fileName.length, 120) / 2);
     score -= (detail.itemID || 0) / 1000000;
     return score;
+  },
+
+  isGenericAttachmentDetail(detail) {
+    let normalizedTitle = this.normalizedAttachmentTitle(detail.title || "");
+    if (this.genericAttachmentTitleSet().has(normalizedTitle)) return true;
+    let normalizedFileName = this.normalizedAttachmentTitle((detail.fileName || "").replace(/\.[^.]+$/, ""));
+    return this.genericAttachmentTitleSet().has(normalizedFileName);
+  },
+
+  supplementaryAttachmentPattern() {
+    return /\b(supplement|supplementary|supporting|appendix|additional|movie|video|dataset|source\s+data|extended\s+data|moesm|esm|fig(?:ure)?\s*s\d+|table\s*s\d+|s\d+)\b/i;
+  },
+
+  isSupplementaryLikeAttachment(detail) {
+    let text = [
+      detail.title || "",
+      detail.fileName || "",
+      detail.sourcePath || "",
+      detail.path || ""
+    ].join(" ");
+    return this.supplementaryAttachmentPattern().test(text);
+  },
+
+  isPdfAttachmentDetail(detail) {
+    let contentType = (detail.contentType || "").toLowerCase();
+    let fileName = (detail.fileName || detail.sourcePath || detail.path || "").toLowerCase();
+    return contentType === "application/pdf" || fileName.endsWith(".pdf");
+  },
+
+  attachmentKind(detail) {
+    let contentType = (detail.contentType || "").toLowerCase();
+    let text = [
+      detail.title || "",
+      detail.fileName || "",
+      detail.sourcePath || "",
+      detail.path || ""
+    ].join(" ");
+    if (contentType === "text/html" || /\b(snapshot|webpage|web\s+page)\b/i.test(text)) return "snapshot";
+    if (/\b(movie|video)\b/i.test(text)) return "media";
+    if (/\b(dataset|source\s+data|extended\s+data)\b/i.test(text)) return "data";
+    if (this.supplementaryAttachmentPattern().test(text)) return "supplementary";
+    return "primary";
+  },
+
+  attachmentTextTokens(detail) {
+    let generic = this.genericAttachmentTitleSet();
+    let stop = new Set(["pdf", "full", "text", "article", "publisher", "download", "zotero", "attachment", "file"]);
+    let text = [
+      detail.title || "",
+      (detail.fileName || "").replace(/\.[^.]+$/, "")
+    ].join(" ").toLowerCase();
+    let tokens = text
+      .replace(/[^a-z0-9\u4e00-\u9fff]+/g, " ")
+      .split(/\s+/)
+      .filter(token => token.length > 2 && !stop.has(token) && !generic.has(token));
+    return new Set(tokens);
+  },
+
+  tokenOverlapRatio(a, b) {
+    if (!a.size || !b.size) return 0;
+    let smaller = a.size <= b.size ? a : b;
+    let larger = a.size <= b.size ? b : a;
+    let overlap = 0;
+    for (let token of smaller) {
+      if (larger.has(token)) overlap++;
+    }
+    return overlap / smaller.size;
+  },
+
+  normalizedComparableAttachmentName(detail) {
+    return this.normalizedAttachmentTitle((detail.title || detail.fileName || "").replace(/\.[^.]+$/, ""));
+  },
+
+  nearDuplicateAttachmentEvidence(a, b, args = {}) {
+    if ((a.parentItemID || null) !== (b.parentItemID || null)) return null;
+    if ((a.contentType || "") !== (b.contentType || "")) return null;
+    let aKind = this.attachmentKind(a);
+    let bKind = this.attachmentKind(b);
+    if (aKind !== bKind) return null;
+    if (!Number.isFinite(a.size) || !Number.isFinite(b.size)) return null;
+    if (a.sha256 && b.sha256 && a.size === b.size && a.sha256 !== b.sha256) return null;
+
+    let maxDeltaBytes = parseInt(args.nearDuplicateMaxSizeDeltaBytes || "8192", 10);
+    if (!Number.isFinite(maxDeltaBytes) || maxDeltaBytes < 0) maxDeltaBytes = 8192;
+    let maxDeltaRatio = parseFloat(args.nearDuplicateMaxSizeDeltaRatio || "0.01");
+    if (!Number.isFinite(maxDeltaRatio) || maxDeltaRatio < 0) maxDeltaRatio = 0.01;
+    let tinyDeltaBytes = parseInt(args.nearDuplicateTinySizeDeltaBytes || "1024", 10);
+    if (!Number.isFinite(tinyDeltaBytes) || tinyDeltaBytes < 0) tinyDeltaBytes = 1024;
+
+    let sizeDeltaBytes = Math.abs(a.size - b.size);
+    let maxSize = Math.max(a.size, b.size, 1);
+    let sizeDeltaRatio = sizeDeltaBytes / maxSize;
+    if (sizeDeltaBytes > maxDeltaBytes || sizeDeltaRatio > maxDeltaRatio) return null;
+
+    let aName = this.normalizedComparableAttachmentName(a);
+    let bName = this.normalizedComparableAttachmentName(b);
+    let sameName = !!aName && aName === bName && !this.genericAttachmentTitleSet().has(aName);
+    let genericPair = this.isGenericAttachmentDetail(a) || this.isGenericAttachmentDetail(b);
+    let tokenOverlap = this.tokenOverlapRatio(this.attachmentTextTokens(a), this.attachmentTextTokens(b));
+    let tinySizeDelta = sizeDeltaBytes <= tinyDeltaBytes;
+    let titleEvidence = sameName || tokenOverlap >= 0.6 || genericPair || tinySizeDelta;
+    if (!titleEvidence) return null;
+
+    return {
+      evidenceType: "near-size-same-kind-file",
+      confidence: "probable",
+      attachmentKind: aKind,
+      sizeDeltaBytes,
+      sizeDeltaRatio,
+      sameName,
+      genericTitleInPair: genericPair,
+      tokenOverlap,
+      tinySizeDelta,
+      reason: "same-parent-same-content-type-near-size-same-kind-file"
+    };
   },
 
   chooseDuplicateAttachmentKeep(details) {
@@ -801,10 +920,38 @@ var ZoteroManagementBridge = {
     ].join("|");
   },
 
+  parentContentTypeGroupKey(detail) {
+    return [
+      detail.parentItemID || "",
+      detail.contentType || ""
+    ].join("|");
+  },
+
+  unionFindMake(values) {
+    let parent = new Map();
+    for (let value of values) parent.set(value, value);
+    let find = value => {
+      let current = parent.get(value);
+      if (current !== value) {
+        current = find(current);
+        parent.set(value, current);
+      }
+      return current;
+    };
+    let union = (a, b) => {
+      let rootA = find(a);
+      let rootB = find(b);
+      if (rootA !== rootB) parent.set(rootB, rootA);
+    };
+    return { find, union };
+  },
+
   async buildDuplicateAttachmentPlan(args = {}) {
     let cloudBase = this.getCloudBase(args);
     let attachments = await this.allAttachmentItems();
     let includeStoredFiles = !!args.includeStoredFiles;
+    let includeSnapshots = args.includeSnapshots !== false;
+    let enableNearDuplicates = args.enableNearDuplicateAttachments !== false;
     let maxHashCandidateAttachments = parseInt(args.maxHashCandidateAttachments || "200", 10);
     if (!Number.isFinite(maxHashCandidateAttachments) || maxHashCandidateAttachments <= 0) {
       maxHashCandidateAttachments = 200;
@@ -815,6 +962,10 @@ var ZoteroManagementBridge = {
       fileAttachments: 0,
       sizeCandidateGroups: 0,
       hashCandidateAttachments: 0,
+      nearSizeCandidateGroups: 0,
+      nearSizeCandidatePairs: 0,
+      probableDuplicateGroups: 0,
+      exactDuplicateGroups: 0,
       duplicateGroups: 0,
       removableAttachments: 0,
       missingFiles: 0,
@@ -822,11 +973,16 @@ var ZoteroManagementBridge = {
       skippedHashLimit: false
     };
     let sizeGroups = new Map();
+    let parentContentTypeGroups = new Map();
     let skipped = [];
 
     for (let attachment of attachments) {
       let category = this.attachmentCategory(attachment);
-      if (category !== "linked-file" && !(includeStoredFiles && category === "stored-file")) continue;
+      if (
+        category !== "linked-file" &&
+        !(includeStoredFiles && category === "stored-file") &&
+        !(includeSnapshots && category === "html-snapshot")
+      ) continue;
       let detail = this.attachmentDetail(attachment, cloudBase);
       detail.category = category;
       summary.fileAttachments++;
@@ -840,6 +996,9 @@ var ZoteroManagementBridge = {
       let key = this.duplicateGroupKey(detail, sizeInfo.size);
       if (!sizeGroups.has(key)) sizeGroups.set(key, []);
       sizeGroups.get(key).push(detail);
+      let nearKey = this.parentContentTypeGroupKey(detail);
+      if (!parentContentTypeGroups.has(nearKey)) parentContentTypeGroups.set(nearKey, []);
+      parentContentTypeGroups.get(nearKey).push(detail);
     }
 
     let candidateGroups = Array.from(sizeGroups.values()).filter(group => group.length > 1);
@@ -885,7 +1044,8 @@ var ZoteroManagementBridge = {
     }
 
     let duplicateGroups = [];
-    let removeKeys = [];
+    let removeKeySet = new Set();
+    let coveredComponentKeySet = new Set();
     for (let group of hashGroups.values()) {
       if (group.length <= 1) continue;
       let choice = this.chooseDuplicateAttachmentKeep(group);
@@ -896,6 +1056,9 @@ var ZoteroManagementBridge = {
         contentType: keep.contentType || "",
         size: keep.size,
         sha256: keep.sha256,
+        confidence: "exact",
+        evidenceType: "exact-hash",
+        canAutoTrash: true,
         reason: "same-parent-same-content-type-same-size-same-sha256",
         keep: Object.assign({}, keep, {
           score: this.duplicateAttachmentScore(keep),
@@ -907,9 +1070,82 @@ var ZoteroManagementBridge = {
         }))
       };
       duplicateGroups.push(duplicateGroup);
-      for (let detail of remove) removeKeys.push(detail.key);
+      summary.exactDuplicateGroups++;
+      coveredComponentKeySet.add(group.map(detail => detail.key).sort().join("|"));
+      for (let detail of remove) removeKeySet.add(detail.key);
     }
 
+    if (enableNearDuplicates) {
+      let nearGroups = Array.from(parentContentTypeGroups.values()).filter(group => group.length > 1);
+      summary.nearSizeCandidateGroups = nearGroups.length;
+      for (let group of nearGroups) {
+        let uf = this.unionFindMake(group.map(detail => detail.key));
+        let edgeEvidence = new Map();
+        for (let i = 0; i < group.length; i++) {
+          for (let j = i + 1; j < group.length; j++) {
+            let evidence = this.nearDuplicateAttachmentEvidence(group[i], group[j], args);
+            if (!evidence) continue;
+            summary.nearSizeCandidatePairs++;
+            uf.union(group[i].key, group[j].key);
+            edgeEvidence.set([group[i].key, group[j].key].sort().join("|"), evidence);
+          }
+        }
+        let components = new Map();
+        for (let detail of group) {
+          let root = uf.find(detail.key);
+          if (!components.has(root)) components.set(root, []);
+          components.get(root).push(detail);
+        }
+        for (let component of components.values()) {
+          if (component.length <= 1) continue;
+          let componentKey = component.map(detail => detail.key).sort().join("|");
+          if (coveredComponentKeySet.has(componentKey)) continue;
+          let pairEvidence = [];
+          let maxSizeDeltaBytes = 0;
+          let maxSizeDeltaRatio = 0;
+          for (let i = 0; i < component.length; i++) {
+            for (let j = i + 1; j < component.length; j++) {
+              let edgeKey = [component[i].key, component[j].key].sort().join("|");
+              let evidence = edgeEvidence.get(edgeKey);
+              if (!evidence) continue;
+              pairEvidence.push(Object.assign({
+                keys: [component[i].key, component[j].key]
+              }, evidence));
+              maxSizeDeltaBytes = Math.max(maxSizeDeltaBytes, evidence.sizeDeltaBytes || 0);
+              maxSizeDeltaRatio = Math.max(maxSizeDeltaRatio, evidence.sizeDeltaRatio || 0);
+            }
+          }
+          if (!pairEvidence.length) continue;
+          let choice = this.chooseDuplicateAttachmentKeep(component);
+          let keep = choice.keep;
+          let remove = choice.remove;
+          let duplicateGroup = {
+            parentItemID: keep.parentItemID || null,
+            contentType: keep.contentType || "",
+            confidence: "probable",
+            evidenceType: "near-size-same-kind-file",
+            canAutoTrash: true,
+            reason: "same-parent-same-content-type-near-size-same-kind-file",
+            maxSizeDeltaBytes,
+            maxSizeDeltaRatio,
+            pairEvidence,
+            keep: Object.assign({}, keep, {
+              score: this.duplicateAttachmentScore(keep),
+              keepReason: "highest-descriptive-title-score"
+            }),
+            remove: remove.map(detail => Object.assign({}, detail, {
+              score: this.duplicateAttachmentScore(detail),
+              removeReason: "probable-duplicate-content-lower-title-score"
+            }))
+          };
+          duplicateGroups.push(duplicateGroup);
+          summary.probableDuplicateGroups++;
+          for (let detail of remove) removeKeySet.add(detail.key);
+        }
+      }
+    }
+
+    let removeKeys = Array.from(removeKeySet);
     summary.duplicateGroups = duplicateGroups.length;
     summary.removableAttachments = removeKeys.length;
     duplicateGroups.sort((a, b) => {

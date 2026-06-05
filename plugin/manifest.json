@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Zotero Management Bridge",
-  "version": "0.3.0-beta.0",
+  "version": "0.3.0-beta.1",
   "description": "Local Zotero management bridge for automation agents and scripts.",
   "homepage_url": "https://github.com/by1907047/zotero-management-bridge",
   "author": "Zotero Management Bridge contributors",

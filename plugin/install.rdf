@@ -4,7 +4,7 @@
   <Description about="urn:mozilla:install-manifest">
     <em:id>zotero-management-bridge@example.org</em:id>
     <em:name>Zotero Management Bridge</em:name>
-    <em:version>0.3.0-beta.0</em:version>
+    <em:version>0.3.0-beta.1</em:version>
     <em:description>Local Zotero management bridge for automation agents and scripts.</em:description>
     <em:creator>Zotero Management Bridge contributors</em:creator>
     <em:type>2</em:type>

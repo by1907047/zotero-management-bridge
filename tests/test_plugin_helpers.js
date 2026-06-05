@@ -103,6 +103,76 @@ async function testDuplicatePlanUsesSizeThenHash() {
   assert.strictEqual(plan.duplicateGroups[0].keep.key, "DESCR1");
 }
 
+async function testNearDuplicatePdfCatchesTinySizeDelta() {
+  const subject = Object.create(bridge);
+  const attachments = [
+    fakeAttachment({ key: "GENERICPDF", id: 30, parentID: 2, title: "PDF", path: "D:/linked/paper.pdf" }),
+    fakeAttachment({ key: "DESCRIPTIVEPDF", id: 31, parentID: 2, title: "Wang et al. - 2024 - Bioinspired pressure sensors.pdf", path: "D:/linked/Wang-2024-paper.pdf" })
+  ];
+  subject.allAttachmentItems = async () => attachments;
+  subject.fileSize = async path => ({ exists: true, size: path.includes("Wang") ? 1000003 : 1000000 });
+  subject.sha256File = async path => path.includes("Wang") ? "hash-b" : "hash-a";
+
+  const plan = await subject.buildDuplicateAttachmentPlan({ maxHashCandidateAttachments: 10 });
+  assert.strictEqual(plan.ok, true);
+  assert.strictEqual(plan.summary.exactDuplicateGroups, 0);
+  assert.strictEqual(plan.summary.probableDuplicateGroups, 1);
+  assert.strictEqual(plan.summary.removableAttachments, 1);
+  assert.deepStrictEqual(plan.removeKeys, ["GENERICPDF"]);
+  assert.strictEqual(plan.duplicateGroups[0].confidence, "probable");
+  assert.strictEqual(plan.duplicateGroups[0].evidenceType, "near-size-same-kind-file");
+  assert.strictEqual(plan.duplicateGroups[0].maxSizeDeltaBytes, 3);
+}
+
+async function testNearDuplicateCatchesSupplementaryFiles() {
+  const subject = Object.create(bridge);
+  const attachments = [
+    fakeAttachment({ key: "SI1", id: 40, parentID: 3, title: "Supplementary Materials PDF", path: "D:/linked/si-a.pdf" }),
+    fakeAttachment({ key: "SI2", id: 41, parentID: 3, title: "Supplementary Information", path: "D:/linked/si-b.pdf" })
+  ];
+  subject.allAttachmentItems = async () => attachments;
+  subject.fileSize = async path => ({ exists: true, size: path.includes("si-b") ? 500003 : 500000 });
+  subject.sha256File = async path => path.includes("si-b") ? "hash-b" : "hash-a";
+
+  const plan = await subject.buildDuplicateAttachmentPlan({ maxHashCandidateAttachments: 10 });
+  assert.strictEqual(plan.ok, true);
+  assert.strictEqual(plan.summary.probableDuplicateGroups, 1);
+  assert.strictEqual(plan.summary.removableAttachments, 1);
+  assert.strictEqual(plan.duplicateGroups[0].pairEvidence[0].attachmentKind, "supplementary");
+}
+
+async function testNearDuplicateDoesNotMixPrimaryAndSupplementary() {
+  const subject = Object.create(bridge);
+  const attachments = [
+    fakeAttachment({ key: "MAINPDF", id: 50, parentID: 4, title: "PDF", path: "D:/linked/main.pdf" }),
+    fakeAttachment({ key: "SIPDF", id: 51, parentID: 4, title: "Supplementary Information", path: "D:/linked/si.pdf" })
+  ];
+  subject.allAttachmentItems = async () => attachments;
+  subject.fileSize = async path => ({ exists: true, size: path.includes("si") ? 700003 : 700000 });
+  subject.sha256File = async path => path.includes("si") ? "hash-b" : "hash-a";
+
+  const plan = await subject.buildDuplicateAttachmentPlan({ maxHashCandidateAttachments: 10 });
+  assert.strictEqual(plan.ok, true);
+  assert.strictEqual(plan.summary.probableDuplicateGroups, 0);
+  assert.strictEqual(plan.summary.removableAttachments, 0);
+}
+
+async function testNearDuplicateCatchesSnapshots() {
+  const subject = Object.create(bridge);
+  const attachments = [
+    fakeAttachment({ key: "SNAP1", id: 60, parentID: 5, title: "Snapshot", path: "D:/linked/snapshot-a.html", contentType: "text/html" }),
+    fakeAttachment({ key: "SNAP2", id: 61, parentID: 5, title: "Webpage Snapshot", path: "D:/linked/snapshot-b.html", contentType: "text/html" })
+  ];
+  subject.allAttachmentItems = async () => attachments;
+  subject.fileSize = async path => ({ exists: true, size: path.includes("snapshot-b") ? 900002 : 900000 });
+  subject.sha256File = async path => path.includes("snapshot-b") ? "hash-b" : "hash-a";
+
+  const plan = await subject.buildDuplicateAttachmentPlan({ maxHashCandidateAttachments: 10 });
+  assert.strictEqual(plan.ok, true);
+  assert.strictEqual(plan.summary.probableDuplicateGroups, 1);
+  assert.strictEqual(plan.duplicateGroups[0].pairEvidence[0].attachmentKind, "snapshot");
+}
+
 async function run() {
   testDuplicateTitlePreference();
   testChineseGenericTitle();
@@ -110,6 +180,10 @@ async function run() {
   testMetadataAuditJournalArticle();
   testMetadataAuditThesisDoesNotRequireDoi();
   await testDuplicatePlanUsesSizeThenHash();
+  await testNearDuplicatePdfCatchesTinySizeDelta();
+  await testNearDuplicateCatchesSupplementaryFiles();
+  await testNearDuplicateDoesNotMixPrimaryAndSupplementary();
+  await testNearDuplicateCatchesSnapshots();
   console.log("plugin helper tests passed");
 }
 

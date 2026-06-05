@@ -35,13 +35,14 @@ Clients can fetch metadata or files externally, validate them, and then ask the 
 
 ## Duplicate Attachment Cleanup
 
-`find-duplicate-attachments` and `cleanup-duplicate-attachments` use a conservative rule:
+`find-duplicate-attachments` and `cleanup-duplicate-attachments` use conservative exact and probable rules:
 
 1. Compare only attachments under the same parent Zotero item.
 2. Require the same content type.
-3. Require the same file size before hashing.
-4. Hash only those size candidates.
-5. Trash only extra Zotero attachment records in `apply`.
+3. Exact matches require the same file size and same SHA-256; only exact-size candidates are hashed.
+4. Probable matches require the same attachment kind, such as primary, supplementary, snapshot, media, or data.
+5. Probable matches also require near file size plus title/name evidence or a tiny size delta.
+6. Trash only extra Zotero attachment records in `apply`.
 
 External linked files are never removed by this operation.
 

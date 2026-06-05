@@ -22,7 +22,7 @@ import zotero_bridge
 
 
 SERVER_NAME = "zotero-management-bridge"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = "0.1.1"
 PROTOCOL_VERSION = "2025-06-18"
 
 
@@ -145,10 +145,14 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "zmb_find_duplicate_attachments",
-        "description": "Find duplicate attachment records using same parent, content type, size, then SHA-256.",
+        "description": "Find exact and probable duplicate attachment records using same parent, content type, exact hash, and same-kind near-size evidence.",
         "inputSchema": object_schema({
             "includeStoredFiles": {"type": "boolean", "default": False},
+            "includeSnapshots": {"type": "boolean", "default": True},
+            "enableNearDuplicateAttachments": {"type": "boolean", "default": True},
             "maxHashCandidateAttachments": {"type": "integer", "minimum": 1, "default": 200},
+            "nearDuplicateMaxSizeDeltaBytes": {"type": "integer", "minimum": 0, "default": 8192},
+            "nearDuplicateMaxSizeDeltaRatio": {"type": "number", "minimum": 0, "default": 0.01},
             "timeout": COMMON_TIMEOUT,
         }),
         "annotations": {"readOnlyHint": True, "destructiveHint": False},
@@ -159,7 +163,11 @@ TOOLS: list[dict[str, Any]] = [
         "inputSchema": object_schema({
             "mode": COMMON_MODE,
             "includeStoredFiles": {"type": "boolean", "default": False},
+            "includeSnapshots": {"type": "boolean", "default": True},
+            "enableNearDuplicateAttachments": {"type": "boolean", "default": True},
             "maxHashCandidateAttachments": {"type": "integer", "minimum": 1, "default": 200},
+            "nearDuplicateMaxSizeDeltaBytes": {"type": "integer", "minimum": 0, "default": 8192},
+            "nearDuplicateMaxSizeDeltaRatio": {"type": "number", "minimum": 0, "default": 0.01},
             "timeout": COMMON_TIMEOUT,
             "confirmApply": COMMON_CONFIRM,
         }),
@@ -357,7 +365,12 @@ def handle_message(server: ZoteroBridgeMCPServer, message: dict[str, Any]) -> di
 
 
 def write_message(message: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(message, ensure_ascii=False, separators=(",", ":")) + "\n")
+    line = json.dumps(message, ensure_ascii=False, separators=(",", ":")) + "\n"
+    if hasattr(sys.stdout, "buffer"):
+        sys.stdout.buffer.write(line.encode("utf-8"))
+        sys.stdout.buffer.flush()
+        return
+    sys.stdout.write(line)
     sys.stdout.flush()
 
 

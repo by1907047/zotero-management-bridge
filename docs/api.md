@@ -1,6 +1,6 @@
 # Zotero Management API
 
-Operation names are stable for the `v0.3.0-beta.0` community trial, but may still change before `v1.0`.
+Operation names are stable for the `v0.3.0-beta.1` community trial, but may still change before `v1.0`.
 
 ## Request Shape
 
@@ -126,26 +126,29 @@ Finds missing `title`, `DOI`, `date`, `publicationTitle` or `proceedingsTitle`, 
 
 ### `find-duplicate-attachments`
 
-Safety: read-only, but it reads candidate attachment files to compute SHA-256 hashes. Changes Zotero: no. Deletes external files: no.
+Safety: read-only, but it reads candidate attachment files to compute SHA-256 hashes for exact-size candidates and file sizes for near-size candidates. Changes Zotero: no. Deletes external files: no.
 
 ```json
 {
   "operation": "find-duplicate-attachments",
   "args": {
-    "maxHashCandidateAttachments": 200
+    "maxHashCandidateAttachments": 200,
+    "enableNearDuplicateAttachments": true,
+    "nearDuplicateMaxSizeDeltaBytes": 8192,
+    "nearDuplicateMaxSizeDeltaRatio": 0.01
   }
 }
 ```
 
 Duplicate rule:
 
-1. Only file attachments are considered. Linked files are included by default; stored files are included only with `includeStoredFiles:true`.
-2. Candidates are grouped by same parent item, same content type, and same file size.
-3. SHA-256 is computed only for those candidate groups.
-4. A duplicate group requires the same parent, content type, size, and hash.
-5. The keep/remove plan prefers descriptive titles over generic titles such as `PDF`, `Full Text PDF`, and `\u5168\u6587`.
+1. File attachments are considered. Linked files and HTML snapshots are included by default; stored non-snapshot files are included only with `includeStoredFiles:true`.
+2. Exact duplicates are grouped by same parent item, same content type, same file size, and same SHA-256. SHA-256 is computed only for exact-size candidates.
+3. Probable duplicates are grouped by same parent item, same content type, same attachment kind, and near file size. Attachment kinds include `primary`, `supplementary`, `snapshot`, `media`, and `data`.
+4. Near-size probable matches require additional evidence: same/generic title, strong token overlap, or a tiny size delta. Main article attachments are not mixed with supplementary files, and snapshots are compared only with snapshots.
+5. The keep/remove plan prefers descriptive titles over generic titles such as `PDF`, `Full Text PDF`, `Snapshot`, and `\u5168\u6587`.
 
-Response includes `duplicateGroups`, `keep`, `remove`, scores, reasons, skipped files, and summary counts.
+Response includes `duplicateGroups`, `confidence` (`exact` or `probable`), `evidenceType`, `keep`, `remove`, scores, reasons, skipped files, and summary counts.
 
 ## Write Operations
 
@@ -234,7 +237,7 @@ Safety: dry-run-first. Changes Zotero in `apply`: moves duplicate attachment rec
 }
 ```
 
-`apply` runs the same candidate and hash plan, then trashes only the listed extra Zotero attachment records. It never permanently erases records and never deletes cloud-synced or other linked files.
+`apply` runs the same candidate plan, then trashes only the listed extra Zotero attachment records. It never permanently erases records and never deletes cloud-synced or other linked files.
 
 ### `trash-items-by-key`
 
