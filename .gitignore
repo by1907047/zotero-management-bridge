@@ -1,0 +1,22 @@
+# Build artifacts
+dist/
+*.xpi
+
+# Local reports and queues
+zotero-management-bridge-reports/
+queue/
+requests/
+responses/
+processed/
+failed/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

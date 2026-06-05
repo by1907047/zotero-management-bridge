@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Zotero Management Bridge Request",
+  "type": "object",
+  "required": ["operation"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Client-supplied request id used for response filenames."
+    },
+    "operation": {
+      "type": "string",
+      "description": "Whitelisted operation name."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["dry-run", "apply"],
+      "default": "dry-run"
+    },
+    "args": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "reportMode": {
+      "type": "string",
+      "enum": ["none", "summary", "full"],
+      "default": "summary"
+    }
+  },
+  "additionalProperties": false
+}

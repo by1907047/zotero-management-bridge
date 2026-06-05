@@ -1,0 +1,15 @@
+{
+  "manifest_version": 2,
+  "name": "Zotero Management Bridge",
+  "version": "0.2.0-alpha.0",
+  "description": "Local Zotero management bridge for automation agents and scripts.",
+  "homepage_url": "https://github.com/REPLACE_ME/zotero-management-bridge",
+  "author": "Zotero Management Bridge contributors",
+  "applications": {
+    "zotero": {
+      "id": "zotero-management-bridge@example.org",
+      "strict_min_version": "6.999",
+      "strict_max_version": "9.*"
+    }
+  }
+}
