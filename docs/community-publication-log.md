@@ -20,3 +20,6 @@ Community plugin store:
 - Compare view: https://github.com/zotero-chinese/zotero-plugins/compare/main...by1907047:add-zotero-management-bridge?expand=1
 - Direct PR creation was blocked by repository settings: "An owner of this repository has limited the ability to open a pull request to users that are collaborators on this repository."
 - Issue submitted instead: https://github.com/zotero-chinese/zotero-plugins/issues/299
+- Maintainer `northword` replied that new plugins should be submitted to `syt2/zotero-addons-scraper`.
+- Submitted follow-up PR: https://github.com/syt2/zotero-addons-scraper/pull/118
+- Replied on the original issue with the new PR link: https://github.com/zotero-chinese/zotero-plugins/issues/299#issuecomment-4638612207
