@@ -1,6 +1,6 @@
 # Zotero Management API
 
-Operation names are stable for the `v0.4.0-beta.0` community preview, but may still change before `v1.0`.
+Operation names are stable for the `v0.4.0` community release, but may still change before `v1.0`.
 
 ## Request Shape
 

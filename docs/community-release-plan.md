@@ -1,11 +1,11 @@
 # Community Release Plan
 
-This document tracks what remains before Zotero Management Bridge should be promoted from a working beta to a community-ready release.
+This document tracks the current community release state and what remains before Zotero Management Bridge should be promoted to a long-term stable `v1.0.0` release.
 
 Current target:
 
-- Current version: `v0.4.0-beta.0`
-- Next community preview target: `v0.4.x`
+- Current version: `v0.4.0`
+- Next community maintenance target: `v0.4.x`
 - Stable target: `v1.0.0` after real-world testing by more than one library/workflow
 
 ## Release Principle
@@ -85,7 +85,7 @@ Minimum CI jobs:
 
 ## Repository Cleanup
 
-Before a public announcement:
+For public maintenance releases:
 
 - Keep only current release artifacts attached to GitHub Releases.
 - Do not commit `dist/`, debug logs, local reports, queue folders, or Zotero profile artifacts.
@@ -298,7 +298,7 @@ For each release:
 
 ## Real-Library Smoke Test
 
-Before announcing a community preview:
+Before announcing a community maintenance release:
 
 - `status`
 - `capabilities`
@@ -325,13 +325,9 @@ All apply tests should use tiny, known fixtures or a disposable Zotero test item
 
 ## Proposed Milestones
 
-### `v0.4.0-beta.0`
+### `v0.4.0`
 
-- Configurable attachment root and storage layout.
-- CI baseline.
-- README rewrite for general users.
-- Updated examples without personal paths.
-- Release checklist automated where practical.
+- Community release with configurable attachment-root messaging, CI baseline, README/API/MCP/security documentation, create-item support, MCP create support, duplicate attachment audits, and release packaging.
 
 ### `v0.5.0-beta.0`
 
