@@ -52,6 +52,7 @@ Read-only:
 Dry-run first / write-capable:
 
 - `create-item`
+- `add-items-to-collection`
 - `update-item-fields`
 - `link-file-to-item`
 - `import-file-to-item`

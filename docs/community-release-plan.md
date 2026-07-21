@@ -4,7 +4,7 @@ This document tracks the current community release state and what remains before
 
 Current target:
 
-- Current version: `v0.4.0`
+- Current version: `v0.4.1`
 - Next community maintenance target: `v0.4.x`
 - Stable target: `v1.0.0` after real-world testing by more than one library/workflow
 
@@ -328,6 +328,12 @@ All apply tests should use tiny, known fixtures or a disposable Zotero test item
 ### `v0.4.0`
 
 - Community release with configurable attachment-root messaging, CI baseline, README/API/MCP/security documentation, create-item support, MCP create support, duplicate attachment audits, and release packaging.
+
+### `v0.4.1`
+
+- Add exact collection-path resolution and dry-run-first assignment of existing items to collections.
+- Reject duplicate DOI creation by default and preserve existing collection memberships.
+- Add MCP schemas, documentation, and regression tests for the safer literature-ingestion workflow.
 
 ### `v0.5.0-beta.0`
 

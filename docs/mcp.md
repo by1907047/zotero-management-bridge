@@ -58,6 +58,7 @@ The adapter exposes these tools:
 - `zmb_request`: generic bridge operation wrapper.
 - `zmb_status`
 - `zmb_capabilities`
+- `zmb_add_items_to_collection`
 - `zmb_list_collections`
 - `zmb_search_items`
 - `zmb_get_items`

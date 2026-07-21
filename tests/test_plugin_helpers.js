@@ -215,6 +215,7 @@ async function testPossiblePrimaryDuplicatesCanBeDisabled() {
 
 async function testCreateItemDryRunPlansMetadata() {
   const subject = Object.create(bridge);
+  subject.allRegularItems = async () => [];
   const plan = await subject.operationCreateItem("dry-run", {
     itemType: "journalArticle",
     title: "A Nature Sensors article",
@@ -228,6 +229,98 @@ async function testCreateItemDryRunPlansMetadata() {
   assert.strictEqual(plan.details[0].action, "would-create-item");
   assert.strictEqual(plan.details[0].fields.DOI, "10.1038/s44460-026-00081-9");
   assert.deepStrictEqual(plan.details[0].tags, [{ tag: "Nature Sensors" }]);
+}
+
+async function testCollectionPathResolution() {
+  const subject = Object.create(bridge);
+  subject.allCollections = async () => [
+    { id: 1, key: "PARENT01", name: "无人机应用", parentID: null },
+    { id: 2, key: "CHILD001", name: "飞行控制", parentID: 1 }
+  ];
+  const resolution = await subject.resolveCollectionIDs({ collectionPath: "无人机应用/飞行控制" });
+  assert.deepStrictEqual(resolution.ids, [2]);
+  assert.strictEqual(resolution.details[0].path, "无人机应用 / 飞行控制");
+  assert.deepStrictEqual(resolution.missing, []);
+}
+
+async function testCreateItemRejectsDuplicateDOI() {
+  const subject = Object.create(bridge);
+  subject.allRegularItems = async () => [{
+    key: "EXISTING",
+    id: 42,
+    itemType: "journalArticle",
+    dateAdded: "",
+    dateModified: "",
+    getField: field => field === "DOI" ? "https://doi.org/10.1234/DUPLICATE" : (field === "title" ? "Existing paper" : ""),
+    getCreators: () => [],
+    getCollections: () => [5],
+    getTags: () => []
+  }];
+  const plan = await subject.operationCreateItem("dry-run", {
+    title: "Duplicate paper",
+    DOI: "10.1234/duplicate"
+  });
+  assert.strictEqual(plan.ok, false);
+  assert.strictEqual(plan.summary.duplicates, 1);
+  assert.strictEqual(plan.details[0].action, "duplicate-existing-item");
+  assert.strictEqual(plan.details[0].existingItems[0].key, "EXISTING");
+}
+
+async function testAddItemsToCollectionDryRun() {
+  const subject = Object.create(bridge);
+  subject.resolveCollectionIDs = async () => ({
+    ids: [7],
+    details: [{ collectionID: 7, key: "TARGET01", name: "飞行控制", path: "无人机应用 / 飞行控制" }],
+    missing: []
+  });
+  subject.getItemByKey = async key => ({
+    key,
+    isRegularItem: () => true,
+    getField: field => field === "title" ? "Flight paper" : "",
+    getCollections: () => [3]
+  });
+  const plan = await subject.operationAddItemsToCollection("dry-run", {
+    keys: ["ITEM0001", "ITEM0001"],
+    collectionPath: "无人机应用 / 飞行控制"
+  });
+  assert.strictEqual(plan.ok, true);
+  assert.strictEqual(plan.summary.wouldAdd, 1);
+  assert.strictEqual(plan.summary.duplicateRequests, 1);
+  assert.strictEqual(plan.details[0].action, "would-add-to-collection");
+  assert.deepStrictEqual(plan.details[0].beforeCollections, [3]);
+}
+
+async function testAddItemsToCollectionApplyPreservesMemberships() {
+  const subject = Object.create(bridge);
+  subject.resolveCollectionIDs = async () => ({
+    ids: [7],
+    details: [{ collectionID: 7, key: "TARGET01", name: "飞行控制" }],
+    missing: []
+  });
+  let collections = [3];
+  let saves = 0;
+  subject.getItemByKey = async key => ({
+    key,
+    isRegularItem: () => true,
+    getField: field => field === "title" ? "Flight paper" : "",
+    getCollections: () => collections,
+    setCollections: value => { collections = value; },
+    save: async () => { saves++; }
+  });
+  global.Zotero = { DB: { executeTransaction: async callback => await callback() } };
+  try {
+    const result = await subject.operationAddItemsToCollection("apply", {
+      keys: ["ITEM0001"],
+      collectionKey: "TARGET01"
+    });
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.summary.added, 1);
+    assert.deepStrictEqual(collections, [3, 7]);
+    assert.strictEqual(saves, 1);
+  }
+  finally {
+    delete global.Zotero;
+  }
 }
 
 async function run() {
@@ -244,6 +337,10 @@ async function run() {
   await testPossiblePrimaryDuplicatesAreReviewOnly();
   await testPossiblePrimaryDuplicatesCanBeDisabled();
   await testCreateItemDryRunPlansMetadata();
+  await testCollectionPathResolution();
+  await testCreateItemRejectsDuplicateDOI();
+  await testAddItemsToCollectionDryRun();
+  await testAddItemsToCollectionApplyPreservesMemberships();
   console.log("plugin helper tests passed");
 }
 

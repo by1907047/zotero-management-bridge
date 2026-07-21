@@ -1,6 +1,6 @@
 # Zotero Management API
 
-Operation names are stable for the `v0.4.0` community release, but may still change before `v1.0`.
+Operation names are stable for the `v0.4.1` community release, but may still change before `v1.0`.
 
 ## Request Shape
 
@@ -182,6 +182,25 @@ Safety: dry-run-first. Changes Zotero in `apply`: creates one Zotero item. Touch
 ```
 
 The bridge does not fetch DOI, Crossref, publisher, or web metadata. Clients should verify metadata first, then send it to `create-item`. Collection targeting accepts exact collection ids, keys, or unique names. By default, missing or ambiguous collections fail the request; pass `requireCollections:false` only when creating outside the requested collection is acceptable.
+
+By default, `create-item` rejects an exact normalized DOI already present in the library. Use the returned existing item key with `add-items-to-collection` instead of creating a duplicate. `allowDuplicate:true` is an explicit escape hatch for exceptional cases.
+
+### `add-items-to-collection`
+
+Add existing regular bibliographic items to one exact collection without removing their other collection memberships. Identify the collection by stable key, exact path, or unique name. Nested paths accept either `Parent / Child` or `Parent/Child` form.
+
+```json
+{
+  "operation": "add-items-to-collection",
+  "mode": "dry-run",
+  "args": {
+    "keys": ["ABCD1234"],
+    "collectionPath": "无人机应用 / 飞行控制"
+  }
+}
+```
+
+Apply requires the usual explicit confirmation. The operation preflights every requested key and makes no membership changes when any item or the target collection cannot be resolved.
 
 ### `update-item-fields`
 

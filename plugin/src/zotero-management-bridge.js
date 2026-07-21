@@ -337,6 +337,7 @@ var ZoteroManagementBridge = {
     if (operation === "link-file-to-item") return await this.operationLinkFileToItem(mode, args);
     if (operation === "import-file-to-item") return await this.operationImportFileToItem(mode, args);
     if (operation === "create-item") return await this.operationCreateItem(mode, args);
+    if (operation === "add-items-to-collection") return await this.operationAddItemsToCollection(mode, args);
     if (operation === "update-item-fields") return await this.operationUpdateItemFields(mode, args);
     if (operation === "trash-items-by-key") return await this.operationTrashItemsByKey(mode, args);
     if (operation === "erase-trash-by-key") return await this.operationEraseTrashByKey(mode, args);
@@ -375,6 +376,7 @@ var ZoteroManagementBridge = {
         ],
         writeDryRunFirst: [
           "create-item",
+          "add-items-to-collection",
           "update-item-fields",
           "link-file-to-item",
           "import-file-to-item",
@@ -462,17 +464,8 @@ var ZoteroManagementBridge = {
     };
   },
 
-  async operationListCollections(args) {
-    let collections = [];
-    if (Zotero.Collections && Zotero.Collections.getByLibrary) {
-      collections = Zotero.Collections.getByLibrary(Zotero.Libraries.userLibraryID) || [];
-    }
-    let rows = collections.map(collection => ({
-      collectionID: collection.id || collection.collectionID,
-      key: collection.key,
-      name: collection.name,
-      parentCollectionID: collection.parentID || null
-    }));
+  collectionReports(collections) {
+    let rows = (collections || []).map(collection => this.collectionReport(collection)).filter(Boolean);
     let byID = new Map(rows.map(row => [row.collectionID, row]));
     for (let row of rows) {
       let parts = [];
@@ -485,6 +478,24 @@ var ZoteroManagementBridge = {
       }
       row.path = parts.join(" / ");
     }
+    return rows;
+  },
+
+  normalizeCollectionPath(value) {
+    return String(value || "")
+      .split(/\s*\/\s*/)
+      .map(part => part.trim())
+      .filter(Boolean)
+      .join(" / ")
+      .toLowerCase();
+  },
+
+  async operationListCollections(args) {
+    let collections = [];
+    if (Zotero.Collections && Zotero.Collections.getByLibrary) {
+      collections = Zotero.Collections.getByLibrary(Zotero.Libraries.userLibraryID) || [];
+    }
+    let rows = this.collectionReports(collections);
     rows.sort((a, b) => (a.path || "").localeCompare(b.path || ""));
     return { ok: true, summary: { collections: rows.length }, collections: rows };
   },
@@ -501,19 +512,21 @@ var ZoteroManagementBridge = {
     if (Array.isArray(args.collections)) inputs = inputs.concat(args.collections);
     if (Array.isArray(args.collectionKeys)) inputs = inputs.concat(args.collectionKeys.map(key => ({ key })));
     if (Array.isArray(args.collectionNames)) inputs = inputs.concat(args.collectionNames.map(name => ({ name })));
+    if (Array.isArray(args.collectionPaths)) inputs = inputs.concat(args.collectionPaths.map(path => ({ path })));
     if (args.collectionKey) inputs.push({ key: args.collectionKey });
     if (args.collectionName) inputs.push({ name: args.collectionName });
+    if (args.collectionPath) inputs.push({ path: args.collectionPath });
     if (!inputs.length) return { ids: [], details: [], missing: [] };
 
     let collections = await this.allCollections();
     let byKey = new Map();
     let byID = new Map();
     let byName = new Map();
-    for (let collection of collections) {
-      let report = this.collectionReport(collection);
-      if (!report) continue;
+    let byPath = new Map();
+    for (let report of this.collectionReports(collections)) {
       if (report.key) byKey.set(String(report.key), report);
       if (report.collectionID !== undefined && report.collectionID !== null) byID.set(String(report.collectionID), report);
+      if (report.path) byPath.set(this.normalizeCollectionPath(report.path), report);
       if (report.name) {
         let key = String(report.name).toLowerCase();
         if (!byName.has(key)) byName.set(key, []);
@@ -531,6 +544,7 @@ var ZoteroManagementBridge = {
       }
       else if (typeof input === "string") {
         found = byKey.get(input);
+        if (!found) found = byPath.get(this.normalizeCollectionPath(input));
         if (!found) {
           let matches = byName.get(input.toLowerCase()) || [];
           if (matches.length === 1) found = matches[0];
@@ -540,6 +554,7 @@ var ZoteroManagementBridge = {
       else if (input && typeof input === "object") {
         if (input.id || input.collectionID) found = byID.get(String(input.id || input.collectionID));
         if (!found && input.key) found = byKey.get(String(input.key));
+        if (!found && input.path) found = byPath.get(this.normalizeCollectionPath(input.path));
         if (!found && input.name) {
           let matches = byName.get(String(input.name).toLowerCase()) || [];
           if (matches.length === 1) found = matches[0];
@@ -1539,8 +1554,10 @@ var ZoteroManagementBridge = {
       collections: item.collections,
       collectionKeys: item.collectionKeys,
       collectionNames: item.collectionNames,
+      collectionPaths: item.collectionPaths,
       collectionKey: item.collectionKey,
       collectionName: item.collectionName,
+      collectionPath: item.collectionPath,
       saveOptions: item.saveOptions || args.saveOptions || {}
     };
   },
@@ -1551,6 +1568,8 @@ var ZoteroManagementBridge = {
       throw new Error("title is required for create-item");
     }
     let collectionResolution = await this.resolveCollectionIDs(spec);
+    let normalizedDOI = this.normalizeDOI(spec.fields.DOI || "");
+    let duplicateItems = normalizedDOI ? await this.findRegularItemsByDOI(normalizedDOI) : [];
     let detail = {
       action: mode === "apply" ? "created-item" : "would-create-item",
       itemType: spec.itemType,
@@ -1567,6 +1586,14 @@ var ZoteroManagementBridge = {
       missingCollections: collectionResolution.missing.length,
       failures: 0
     };
+    if (duplicateItems.length && args.allowDuplicate !== true) {
+      detail.action = "duplicate-existing-item";
+      detail.existingItems = duplicateItems.map(item => this.itemReport(item));
+      summary.wouldCreate = 0;
+      summary.duplicates = duplicateItems.length;
+      summary.failures = 1;
+      return { ok: false, summary, details: [detail] };
+    }
     if (collectionResolution.missing.length && args.requireCollections !== false) {
       detail.action = "failed";
       detail.error = "One or more requested collections were not found or ambiguous";
@@ -1596,6 +1623,105 @@ var ZoteroManagementBridge = {
     }
 
     return { ok: summary.failures === 0, summary, details: [detail] };
+  },
+
+  normalizeDOI(value) {
+    return String(value || "")
+      .trim()
+      .replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, "")
+      .toLowerCase();
+  },
+
+  async findRegularItemsByDOI(doi) {
+    let normalized = this.normalizeDOI(doi);
+    if (!normalized) return [];
+    let items = await this.allRegularItems();
+    return items.filter(item => this.normalizeDOI(this.itemField(item, "DOI")) === normalized);
+  },
+
+  async operationAddItemsToCollection(mode, args) {
+    let requestedKeys = args.keys || (args.key ? [args.key] : []);
+    if (!Array.isArray(requestedKeys) || !requestedKeys.length) {
+      throw new Error("args.keys must be a non-empty array");
+    }
+    let keys = [...new Set(requestedKeys.map(key => String(key)))];
+    let collectionResolution = await this.resolveCollectionIDs(args);
+    if (collectionResolution.missing.length || collectionResolution.ids.length !== 1) {
+      return {
+        ok: false,
+        summary: {
+          requested: keys.length,
+          failures: keys.length,
+          missingCollections: collectionResolution.missing.length
+        },
+        details: [{
+          action: "failed",
+          error: "Exactly one existing collection must be identified by key, path, or unique name",
+          collections: collectionResolution.details,
+          missingCollections: collectionResolution.missing
+        }]
+      };
+    }
+
+    let collectionID = collectionResolution.ids[0];
+    let collection = collectionResolution.details[0];
+    let plans = [];
+    let failures = 0;
+    for (let key of keys) {
+      let item = await this.getItemByKey(key);
+      if (!item || (item.isRegularItem && !item.isRegularItem())) {
+        plans.push({ key, action: "failed", error: "Regular bibliographic item not found", collection });
+        failures++;
+        continue;
+      }
+      let beforeCollections = item.getCollections ? item.getCollections() : [];
+      plans.push({
+        key,
+        item,
+        title: this.itemField(item, "title"),
+        beforeCollections,
+        action: beforeCollections.includes(collectionID)
+          ? "already-in-collection"
+          : (mode === "apply" ? "add-to-collection" : "would-add-to-collection"),
+        collection
+      });
+    }
+
+    if (failures) {
+      return {
+        ok: false,
+        summary: { requested: keys.length, failures, added: 0, wouldAdd: 0 },
+        details: plans.map(({ item, ...detail }) => detail)
+      };
+    }
+
+    if (mode === "apply") {
+      await Zotero.DB.executeTransaction(async () => {
+        for (let plan of plans) {
+          if (plan.action === "already-in-collection") continue;
+          let collections = [...new Set(plan.beforeCollections.concat([collectionID]))];
+          plan.item.setCollections(collections);
+          await plan.item.save(args.saveOptions || {});
+          plan.action = "added-to-collection";
+          plan.afterCollections = plan.item.getCollections ? plan.item.getCollections() : collections;
+        }
+      });
+    }
+
+    let details = plans.map(({ item, ...detail }) => detail);
+    return {
+      ok: true,
+      summary: {
+        requested: keys.length,
+        uniqueRequested: keys.length,
+        duplicateRequests: requestedKeys.length - keys.length,
+        wouldAdd: mode === "apply" ? 0 : details.filter(row => row.action === "would-add-to-collection").length,
+        added: details.filter(row => row.action === "added-to-collection").length,
+        alreadyPresent: details.filter(row => row.action === "already-in-collection").length,
+        failures: 0
+      },
+      details
+    };
   },
 
   async operationUpdateItemFields(mode, args) {

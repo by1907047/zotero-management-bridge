@@ -22,7 +22,7 @@ import zotero_bridge
 
 
 SERVER_NAME = "zotero-management-bridge"
-SERVER_VERSION = "0.2.0"
+SERVER_VERSION = "0.4.1"
 PROTOCOL_VERSION = "2025-06-18"
 
 
@@ -198,10 +198,26 @@ TOOLS: list[dict[str, Any]] = [
             "tags": {"type": "array", "items": {"type": ["string", "object"]}},
             "collectionKey": {"type": "string"},
             "collectionName": {"type": "string"},
+            "collectionPath": {"type": "string"},
             "requireCollections": {"type": "boolean", "default": True},
+            "allowDuplicate": {"type": "boolean", "default": False},
             "timeout": COMMON_TIMEOUT,
             "confirmApply": COMMON_CONFIRM,
         }, ["title"]),
+        "annotations": {"readOnlyHint": False, "destructiveHint": False},
+    },
+    {
+        "name": "zmb_add_items_to_collection",
+        "description": "Dry-run or apply adding existing Zotero bibliographic items to one exact collection without removing other memberships.",
+        "inputSchema": object_schema({
+            "mode": COMMON_MODE,
+            "keys": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+            "collectionKey": {"type": "string"},
+            "collectionName": {"type": "string"},
+            "collectionPath": {"type": "string"},
+            "timeout": COMMON_TIMEOUT,
+            "confirmApply": COMMON_CONFIRM,
+        }, ["keys"]),
         "annotations": {"readOnlyHint": False, "destructiveHint": False},
     },
     {
@@ -300,6 +316,7 @@ class ZoteroBridgeMCPServer:
             "zmb_find_duplicate_attachments": ("find-duplicate-attachments", "dry-run", {"timeout"}),
             "zmb_cleanup_duplicate_attachments": ("cleanup-duplicate-attachments", str(arguments.get("mode") or "dry-run"), {"timeout", "mode", "confirmApply"}),
             "zmb_create_item": ("create-item", str(arguments.get("mode") or "dry-run"), {"timeout", "mode", "confirmApply"}),
+            "zmb_add_items_to_collection": ("add-items-to-collection", str(arguments.get("mode") or "dry-run"), {"timeout", "mode", "confirmApply"}),
             "zmb_update_item_fields": ("update-item-fields", str(arguments.get("mode") or "dry-run"), {"timeout", "mode", "confirmApply"}),
             "zmb_link_file_to_item": ("link-file-to-item", str(arguments.get("mode") or "dry-run"), {"timeout", "mode", "confirmApply"}),
             "zmb_trash_items_by_key": ("trash-items-by-key", str(arguments.get("mode") or "dry-run"), {"timeout", "mode", "confirmApply"}),

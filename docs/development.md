@@ -92,3 +92,4 @@ Before publishing a release:
 - `v0.3.0-beta.3`: add the legacy `install.rdf` update URL so self-hosted updates are discoverable from older install metadata.
 - `v0.4.0-beta.0`: community-preview release with `create-item`, MCP create support, configurable attachment-root messaging, CLI BOM handling, and CI.
 - `v0.4.0`: first community release, with beta suffix removed for public distribution.
+- `v0.4.1`: safer collection assignment with exact paths, DOI duplicate protection, and MCP support for adding existing items to collections.

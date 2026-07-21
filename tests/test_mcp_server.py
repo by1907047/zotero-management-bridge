@@ -44,6 +44,7 @@ class MCPServerTests(unittest.TestCase):
         self.assertIn("zmb_request", names)
         self.assertIn("zmb_metadata_audit", names)
         self.assertIn("zmb_create_item", names)
+        self.assertIn("zmb_add_items_to_collection", names)
 
     def test_specific_tool_maps_to_bridge_operation(self):
         server = FakeServer()
@@ -95,6 +96,25 @@ class MCPServerTests(unittest.TestCase):
         self.assertEqual(server.calls[0]["operation"], "create-item")
         self.assertEqual(server.calls[0]["args"]["title"], "A Nature Sensors article")
         self.assertEqual(server.calls[0]["args"]["collectionName"], "Nature Sensors")
+
+    def test_add_items_to_collection_maps_to_bridge_operation(self):
+        server = FakeServer()
+        response = mcp.handle_message(server, {
+            "jsonrpc": "2.0",
+            "id": 45,
+            "method": "tools/call",
+            "params": {
+                "name": "zmb_add_items_to_collection",
+                "arguments": {
+                    "keys": ["ITEM0001"],
+                    "collectionPath": "无人机应用 / 飞行控制",
+                },
+            },
+        })
+        self.assertTrue(response["result"]["structuredContent"]["ok"])
+        self.assertEqual(server.calls[0]["operation"], "add-items-to-collection")
+        self.assertEqual(server.calls[0]["args"]["keys"], ["ITEM0001"])
+        self.assertEqual(server.calls[0]["args"]["collectionPath"], "无人机应用 / 飞行控制")
 
     def test_apply_requires_server_enablement(self):
         server = mcp.ZoteroBridgeMCPServer(queue_root=Path("."), default_timeout=5, allow_apply=False)
